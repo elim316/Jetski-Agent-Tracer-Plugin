@@ -19,8 +19,17 @@ class AgentTracerHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
-            with open("index.html", "rb") as f:
-                self.wfile.write(f.read())
+            
+            # Resolve via absolute path from root so it survives CWD inode replacements
+            abs_dir = os.path.dirname(os.path.abspath(__file__))
+            html_path = os.path.join(abs_dir, "index.html")
+            
+            try:
+                with open(html_path, "rb") as f:
+                    self.wfile.write(f.read())
+            except Exception as e:
+                logging.error(f"Failed to serve index.html: {e}")
+                self.wfile.write(b"Error: UI file not found or inaccessible.")
             return
             
         elif path == "/api/transcript":
