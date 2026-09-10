@@ -1,5 +1,7 @@
 # Jetski Agent Tracer Plugin
 
+![Building Trust Through AI Transparency](assets/hero.png)
+
 A dynamic, LangGraph-style trajectory visualizer for Jetski. This UI plugin renders an agent's real-time workflow as an interactive timeline across three distinct architectural swimlanes:
 - **🏃 Actions (Trigger):** User inputs and macro-goals.
 - **🧠 Multi-Agent Workflow:** Agent thought processes and routing logic.
