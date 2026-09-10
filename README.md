@@ -18,7 +18,7 @@ Because this is packaged as a native Jetski UI Plugin, installation is seamless:
 1. Clone this repository into your Jetski plugins configuration directory:
    ```bash
    mkdir -p ~/.gemini/config/plugins
-   git clone <your-github-repo-url> ~/.gemini/config/plugins/agent-tracer
+   git clone https://github.com/elim316/Jetski-Agent-Tracer-Plugin.git ~/.gemini/config/plugins/agent-tracer
    ```
    
 2. Open your Jetski interface and navigate to the **Settings** menu (or Plugins Marketplace).
