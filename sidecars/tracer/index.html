@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Agent Tracer (Strict Timeline)</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; height: 100vh; overflow: hidden; background: var(--background, #f8f9fa); color: var(--foreground, #202124); }
+        
+        #left { width: 68%; border-right: 1px solid var(--border, #dadce0); box-sizing: border-box; background: var(--background, #f8f9fa); display: flex; flex-direction: column; }
+        #right { width: 32%; overflow-y: auto; padding: 20px; box-sizing: border-box; background: var(--card, #fff); }
+        
+        .header { padding: 12px 16px; background: var(--card, #fff); border-bottom: 1px solid var(--border, #dadce0); display: flex; justify-content: space-between; align-items: center; z-index: 2; box-shadow: 0 2px 4px rgba(0,0,0,0.05); height: 56px; box-sizing: border-box; }
+        .header h1 { margin: 0; font-size: 15px; color: var(--foreground, #3c4043); font-weight: 600; }
+        .header .status { font-size: 12px; color: var(--primary, #1a73e8); display: flex; align-items: center; }
+        .status-dot { width: 8px; height: 8px; background-color: #34a853; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(52, 168, 83, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); } }
+
+        .canvas-wrapper { flex: 1; width: 100%; position: relative; overflow: hidden; cursor: grab; }
+        .canvas-wrapper:active { cursor: grabbing; }
+        
+        .swimlanes-bg { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; z-index: 0; pointer-events: none; }
+        .swimlane-row-bg { flex: 1; border-bottom: 2px dashed var(--border, #dadce0); position: relative; background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.01) 10px, rgba(0,0,0,0.01) 20px); }
+        .swimlane-row-bg:last-child { border-bottom: none; }
+        
+        .swimlanes-labels { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; z-index: 2; pointer-events: none; }
+        .swimlane-row-label { flex: 1; position: relative; }
+        .swimlane-header { font-weight: 600; font-size: 13px; color: var(--muted-foreground, #5f6368); padding: 10px 14px; background: rgba(255,255,255,0.85); box-shadow: 1px 1px 3px rgba(0,0,0,0.05); display: inline-block; border-bottom-right-radius: 8px; border-right: 1px solid var(--border, #dadce0); border-bottom: 1px solid var(--border, #dadce0); pointer-events: auto; }
+        
+        #graph-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1; }
+
+        #inspector-title { font-weight: 600; font-size: 14px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border, #eee); display: flex; align-items: center; color: var(--foreground, #202124); }
+        .inspector-section { margin-bottom: 16px; }
+        .inspector-label { font-size: 11px; font-weight: 600; color: var(--muted-foreground, #5f6368); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        pre { background: var(--secondary, #f1f3f4); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 11px; font-family: ui-monospace, monospace; margin: 0; white-space: pre-wrap; word-wrap: break-word; color: var(--foreground, #202124); border: 1px solid var(--border, #e8eaed); }
+        .empty-state { color: var(--muted-foreground, #80868b); text-align: center; margin-top: 60px; font-size: 14px; padding: 20px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .markdown-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.5; color: var(--foreground, #202124); }
+        .markdown-body pre { background: var(--secondary, #f1f3f4); padding: 12px; border-radius: 8px; margin-top: 8px; margin-bottom: 8px; font-size: 11px; white-space: pre-wrap; word-wrap: break-word; border: 1px solid var(--border, #e8eaed); }
+        .markdown-body p { margin-top: 0; margin-bottom: 8px; }
+        .markdown-body code { background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px; font-family: ui-monospace, monospace; }
+    </style>
+</head>
+<body>
+
+<div id="left">
+    <div class="header">
+        <h1>LangGraph-Style Agent Tracer</h1>
+        
+        <div style="display:flex; align-items:center; gap: 20px;">
+            <div style="display:flex; align-items:center; gap: 6px; font-size: 13px; color: var(--muted-foreground, #5f6368);">
+                <input type="checkbox" id="toggleSummaries" checked style="cursor: pointer;">
+                <label for="toggleSummaries" style="cursor: pointer; user-select: none; font-weight: 500;">Show Summaries</label>
+            </div>
+            
+            <div style="display:flex; align-items:center; gap: 6px; font-size: 13px; color: var(--muted-foreground, #5f6368); margin-left: 8px;">
+                <input type="checkbox" id="toggleAutoFollow" checked style="cursor: pointer;">
+                <label for="toggleAutoFollow" style="cursor: pointer; user-select: none; font-weight: 500;">Auto-Follow New Nodes</label>
+            </div>
+            
+            <div style="display:flex; align-items:center; gap: 8px; border-left: 1px solid var(--border, #dadce0); padding-left: 20px;">
+                <button id="btnResetZoom" style="background:var(--card, #fff); border:1px solid var(--border, #dadce0); border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; color:var(--foreground, #3c4043); font-weight: 500; transition: opacity 0.2s;">Zoom 1x</button>
+                <input type="range" id="zoomSlider" min="0.4" max="1.5" step="0.1" value="1.0" style="width: 80px; cursor: pointer;">
+            </div>
+            
+            <div style="border-left: 1px solid var(--border, #dadce0); padding-left: 20px; display:flex; gap: 8px;">
+                <button id="btnJumpStart" style="background:var(--secondary, #e8f0fe); border:none; border-radius:4px; padding:6px 10px; font-size:12px; cursor:pointer; font-weight:600; color:var(--primary, #1a73e8); transition: opacity 0.2s;">Jump to Start</button>
+                <button id="btnJumpEnd" style="background:var(--secondary, #e8f0fe); border:none; border-radius:4px; padding:6px 10px; font-size:12px; cursor:pointer; font-weight:600; color:var(--primary, #1a73e8); transition: opacity 0.2s;">Jump to End</button>
+            </div>
+            
+            <div class="status" id="status-indicator" style="margin-left: 12px;"><div class="status-dot"></div> Live Workflow</div>
+        </div>
+    </div>
+    
+    <div class="canvas-wrapper" id="canvas-wrapper">
+        <div class="swimlanes-bg">
+            <div class="swimlane-row-bg"></div>
+            <div class="swimlane-row-bg"></div>
+            <div class="swimlane-row-bg"></div>
+        </div>
+        <div id="graph-container"></div>
+        <div class="swimlanes-labels">
+            <div class="swimlane-row-label"><div class="swimlane-header">🏃 Actions (Trigger)</div></div>
+            <div class="swimlane-row-label"><div class="swimlane-header">🧠 Multi-Agent Workflow</div></div>
+            <div class="swimlane-row-label"><div class="swimlane-header">🔧 Tools & Functions</div></div>
+        </div>
+    </div>
+</div>
+
+<div id="right">
+    <div id="inspector">
+        <div class="empty-state">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:16px; opacity:0.5;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            <br>
+            Select a timeline node to inspect raw parameters and thoughts.
+        </div>
+    </div>
+</div>
+
+<script>
+    let inspectorEl = document.getElementById('inspector');
+    let network = null;
+    let nodes = new vis.DataSet();
+    let edges = new vis.DataSet();
+    let rawDataMap = {}; 
+    let InitialLayoutDone = false;
+    let currentZoom = 1.0;
+    const BASE_Y_USER = -240;
+    const BASE_Y_TOOL = 240;
+    
+    function getActiveConversationId() {
+        if (window.sidecar && window.sidecar.conversationId) return window.sidecar.conversationId;
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get('conversationId');
+    }
+    
+    let activeConvId = getActiveConversationId();
+    let emptyStateRendered = false;
+    
+    let showSummaries = true;
+    const toggleSummaries = document.getElementById('toggleSummaries');
+    if (toggleSummaries) {
+        toggleSummaries.addEventListener('change', (e) => {
+            showSummaries = e.target.checked;
+            if (network) network.redraw();
+        });
+    }
+
+    let autoFollow = true;
+    const toggleAutoFollow = document.getElementById('toggleAutoFollow');
+    if (toggleAutoFollow) {
+        toggleAutoFollow.addEventListener('change', (e) => {
+            autoFollow = e.target.checked;
+        });
+    }
+
+    const zoomSlider = document.getElementById('zoomSlider');
+    if (zoomSlider) {
+        zoomSlider.addEventListener('input', function() {
+            if (!network) return;
+            currentZoom = parseFloat(this.value);
+            let y_user_scaled = BASE_Y_USER / currentZoom;
+            let y_tool_scaled = BASE_Y_TOOL / currentZoom;
+            let updates = [];
+            nodes.forEach(n => {
+                if (n.id.startsWith('user_')) updates.push({ id: n.id, y: y_user_scaled });
+                else if (n.id.includes('_tool_') && !n.label.includes('🤖 SUBAGENT')) updates.push({ id: n.id, y: y_tool_scaled });
+            });
+            nodes.update(updates);
+            network.moveTo({ scale: currentZoom, animation: false });
+        });
+    }
+    
+    const btnResetZoom = document.getElementById('btnResetZoom');
+    if (btnResetZoom) {
+        btnResetZoom.addEventListener('click', () => {
+            if (zoomSlider) {
+                zoomSlider.value = 1.0;
+                zoomSlider.dispatchEvent(new Event('input'));
+            }
+        });
+    }
+
+    const btnJumpStart = document.getElementById('btnJumpStart');
+    if (btnJumpStart) {
+        btnJumpStart.addEventListener('click', () => {
+            if (network) {
+                network.moveTo({
+                    position: { x: -50, y: 0 },
+                    scale: currentZoom,
+                    animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+                });
+            }
+        });
+    }
+    
+    const btnJumpEnd = document.getElementById('btnJumpEnd');
+    if (btnJumpEnd) {
+        btnJumpEnd.addEventListener('click', () => {
+            if (network && nodes.length > 0) {
+                let maxX = -50;
+                nodes.forEach(n => { if (n.x > maxX) maxX = n.x; });
+                network.moveTo({
+                    position: { x: maxX - 200, y: 0 },
+                    scale: currentZoom,
+                    animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+                });
+                
+                // A great UX bonus: Jumping to the tail should instinctively re-enable auto-following!
+                autoFollow = true;
+                if (toggleAutoFollow) toggleAutoFollow.checked = true;
+            }
+        });
+    }
+    
+    initGraph();
+    setInterval(loadData, 2000); 
+    loadData();
+
+    async function loadData() {
+        const newConvId = getActiveConversationId();
+        if (newConvId !== activeConvId) {
+            activeConvId = newConvId;
+            nodes.clear();
+            edges.clear();
+            rawDataMap = {};
+            InitialLayoutDone = false;
+            emptyStateRendered = false;
+            document.getElementById('status-indicator').innerHTML = `<div class="status-dot"></div> Live Workflow`;
+        }
+        if (!activeConvId) {
+            document.getElementById('graph-container').innerHTML = '<div class="empty-state">No Active Conversation Linked</div>';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/transcript?conversationId=${encodeURIComponent(activeConvId)}`);
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            
+            if (data.length === 0 && !emptyStateRendered && nodes.length === 0) {
+                document.getElementById('graph-container').innerHTML = '<div class="empty-state" style="margin-top:150px;"><h2>Waiting for Agent Activity...</h2><p>Submit a prompt to start tracing the graph.</p></div>';
+                emptyStateRendered = true;
+            } else if (data.length > 0) {
+                if (emptyStateRendered) {
+                    emptyStateRendered = false;
+                    document.getElementById('graph-container').innerHTML = ''; 
+                    initGraph(); 
+                }
+                updateGraph(data);
+            }
+        } catch (e) {
+            console.error("Poll Error:", e);
+        }
+    }
+    
+    const wrapper = document.getElementById('canvas-wrapper');
+    wrapper.addEventListener("wheel", function(e) {
+        if(network) {
+            let scrollAmt = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+            const currentPos = network.getViewPosition();
+            network.moveTo({
+                position: {x: currentPos.x + (scrollAmt * 1.5), y: 0},
+                scale: currentZoom,
+                animation: false
+            });
+            // Suspend auto-follow temporarily if user manually scrolls back
+            if (scrollAmt < 0 && autoFollow) {
+                autoFollow = false;
+                if (toggleAutoFollow) toggleAutoFollow.checked = false;
+            }
+            e.preventDefault();
+        }
+    });
+
+    let isDragging = false;
+    let lastX = 0;
+    wrapper.addEventListener("mousedown", (e) => { isDragging = true; lastX = e.clientX; });
+    window.addEventListener("mouseup", () => { isDragging = false; });
+    window.addEventListener("mousemove", (e) => {
+        if (isDragging && network) {
+            let dx = ((e.clientX - lastX)/currentZoom);
+            const currentPos = network.getViewPosition();
+            network.moveTo({
+                position: { x: currentPos.x - dx, y: 0 }, 
+                scale: currentZoom,
+                animation: false
+            });
+            if (dx > 0 && autoFollow) { // Dragging view left (moving camera right)
+                autoFollow = false;
+                if (toggleAutoFollow) toggleAutoFollow.checked = false;
+            }
+            lastX = e.clientX;
+        }
+    });
+
+    function initGraph() {
+        const container = document.getElementById('graph-container');
+        const graphData = { nodes: nodes, edges: edges };
+        
+        const options = {
+            physics: false,
+            interaction: {
+                hover: true, navigationButtons: false, dragView: false, zoomView: false, dragNodes: false 
+            },
+            nodes: {
+                borderWidth: 2, margin: { top: 12, right: 16, bottom: 12, left: 16 },
+                borderWidthSelected: 3, font: { face: 'ui-monospace, monospace', size: 12 },
+                shapeProperties: { borderRadius: 6 }
+            },
+            edges: {
+                color: '#78909C', width: 2,
+                smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.35 }
+            }
+        };
+        
+        network = new vis.Network(container, graphData, options);
+        
+        network.on("beforeDrawing", function (ctx) {
+            if (!showSummaries || !window.graphTurns || window.graphTurns.length === 0) return;
+            
+            window.graphTurns.forEach(turn => {
+                let padding = 130;
+                let x = turn.minX - padding;
+                let width = (turn.maxX - turn.minX) + (padding * 2.2);
+                let y = (BASE_Y_USER / currentZoom) - 100;
+                let height = Math.abs((BASE_Y_TOOL / currentZoom) - y) + 120;
+                
+                ctx.fillStyle = "rgba(66, 133, 244, 0.04)"; 
+                ctx.strokeStyle = "rgba(66, 133, 244, 0.3)";
+                ctx.lineWidth = 1;
+                
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(x, y, width, height, 16);
+                else ctx.rect(x, y, width, height); 
+                ctx.fill(); ctx.stroke();
+                
+                ctx.fillStyle = "#1967D2";
+                ctx.font = "bold 13px -apple-system, sans-serif";
+                ctx.textAlign = "left";  
+                ctx.textBaseline = "top";
+                
+                let maxWidth = width - 40;
+                let words = turn.summary.split(' ');
+                let line = '';
+                let offsetY = y + 16;
+                let drawX = x + 20; 
+                
+                for(let n = 0; n < words.length; n++) {
+                    let testLine = line + words[n] + ' ';
+                    let metrics = ctx.measureText(testLine);
+                    if (metrics.width > maxWidth && n > 0) {
+                        ctx.fillText(line, drawX, offsetY);
+                        line = words[n] + ' ';
+                        offsetY += 18;
+                    } else {
+                        line = testLine;
+                    }
+                }
+                ctx.fillText(line, drawX, offsetY);
+            });
+        });
+        
+        network.on('click', function(properties) {
+            if (properties.nodes.length > 0) {
+                let clickedNodeId = properties.nodes[0];
+                let clickedData = rawDataMap[clickedNodeId];
+                if (clickedData) renderInspector(clickedData);
+            }
+        });
+    }
+
+    function truncate(str, n) {
+        if (!str) return 'Executing operation...';
+        return (str.length > n) ? str.substr(0, parseInt(n)-1) + '...' : str;
+    }
+
+    function extractFallbackSummary(payload) {
+        if (!payload) return "No payload metadata";
+        if (payload.toolSummary) return payload.toolSummary;
+        if (payload.CommandLine) return "cmd: " + truncate(payload.CommandLine, 40);
+        let keys = Object.keys(payload);
+        if (keys.length > 0) return keys[0] + " executing";
+        return "Tool execution";
+    }
+
+    function extractMacroSummary(thinkingStr) {
+        if (!thinkingStr) return "Analyzing steps...";
+        let sentences = thinkingStr.match(/[^.!?]+[.!?]+/g);
+        if (!sentences || sentences.length === 0) return truncate(thinkingStr, 120).replace(/\*\*/g, '').replace(/\*/g, '');
+        let res = sentences[0].trim();
+        if (sentences.length > 1 && res.length < 80) res += " " + sentences[1].trim();
+        return truncate(res.replace(/\*\*/g, '').replace(/\*/g, ''), 200).replace(/\n/g, ' ');
+    }
+
+    function wrapText(str, maxLength) {
+        if (!str) return "";
+        let line = ""; let lines = []; let words = str.split(" ");
+        for (let i = 0; i < words.length; i++) {
+            if (line.length + words[i].length < maxLength) line += words[i] + " ";
+            else { lines.push(line.trim()); line = words[i] + " "; }
+        }
+        lines.push(line.trim()); return lines.join("\n");
+    }
+
+    function updateGraph(data) {
+        let newNodes = []; let newEdges = [];
+        let previousPlannerId = null; let currentX = -200; 
+        
+        let turns = []; let currentTurn = null;
+        let Y_USER = BASE_Y_USER / currentZoom;  
+        let Y_AGENT = 0;    
+        let Y_TOOL = BASE_Y_TOOL / currentZoom;   
+        
+        if (data.length > 0 && !nodes.get('start')) {
+            newNodes.push({ id: 'start', label: 'START', shape: 'ellipse', color: { background: '#e0f2f1', border: '#00897b' }, font: { color: '#00897b', face: 'system-ui', size: 14 }, x: currentX, y: Y_AGENT });
+            previousPlannerId = 'start';
+        }
+        
+        data.forEach(function(step, index) {
+            if (step.type === 'USER_INPUT') {
+                if (currentTurn) turns.push(currentTurn);
+                currentX += 300;
+                let uId = 'user_' + index;
+                currentTurn = { minX: currentX, maxX: currentX, summary: "User Prompt: " + truncate(step.content, 50) };
+                
+                if (!nodes.get(uId)) {
+                    let summary = wrapText(truncate(step.content ? step.content : 'Initiating...', 50), 30); 
+                    newNodes.push({ id: uId, label: '👤 USER REQUEST\n' + summary, shape: 'box', color: { background: '#FFF3E0', border: '#FFB74D' }, font: { color: '#E65100', align: 'left', multi: false }, x: currentX, y: Y_USER });
+                    rawDataMap[uId] = step;
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: uId, arrows: 'to', dashes: true, color: {color: '#F57C00'} });
+                }
+                previousPlannerId = uId;
+            } 
+            else if (step.type === 'PLANNER_RESPONSE') {
+                currentX += 300;
+                if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, summary: "Analyzing..." };
+                if (step.thinking) currentTurn.summary = "Agent Goal: " + extractMacroSummary(step.thinking);
+                currentTurn.maxX = currentX;
+                
+                let pId = 'planner_' + index;
+                
+                if (!nodes.get(pId)) {
+                    let thoughtExtract = wrapText(truncate(step.thinking ? step.thinking : 'Formulating plan/tools...', 50), 30);
+                    newNodes.push({ id: pId, label: '🧠 MAIN AGENT (ROUTER)\n' + thoughtExtract, shape: 'box', color: { background: '#F3E5F5', border: '#BA68C8' }, font: { color: '#4A148C', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                    rawDataMap[pId] = step;
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: {color: '#8E24AA'} });
+                }
+                previousPlannerId = pId;
+                
+                if (step.tool_calls && step.tool_calls.length > 0) {
+                    let startToolX = currentX + 180; 
+                    step.tool_calls.forEach(function(tool, tIdx) {
+                        let toolId = pId + '_tool_' + tIdx;
+                        let isSubagent = tool.name === 'invoke_subagent';
+                        let toolX = startToolX + (tIdx * 280); 
+                        
+                        if (!nodes.get(toolId)) {
+                            let tSummary = wrapText(truncate((tool.arguments && tool.arguments.toolSummary) ? tool.arguments.toolSummary : extractFallbackSummary(tool.arguments), 45), 28);
+                            let title = isSubagent ? '🤖 SUBAGENT: ' + (tool.arguments.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
+                            let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' }; 
+                                
+                            newNodes.push({ id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color, font: { color: isSubagent ? '#1A237E' : '#006064', align: 'left', multi: false }, x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL });
+                            rawDataMap[toolId] = { type: 'TOOL_CALL', step: step, tool: tool };
+                            newEdges.push({ from: pId, to: toolId, arrows: 'to, from', color: { color: '#78909c' }, width: 2 });
+                        }
+                        if (isSubagent) previousPlannerId = toolId;
+                    });
+                    
+                    let toolsTotalX = startToolX + (step.tool_calls.length * 280) - 100;
+                    if (toolsTotalX > currentX) currentX = toolsTotalX;
+                    currentTurn.maxX = currentX;
+                }
+            }
+        });
+        
+        if (currentTurn) turns.push(currentTurn);
+        window.graphTurns = turns;
+        
+        let nodesAdded = (newNodes.length > 0);
+        if (nodesAdded) nodes.add(newNodes);
+        if (newEdges.length > 0) edges.add(newEdges);
+        
+        if (nodesAdded && !InitialLayoutDone) {
+            InitialLayoutDone = true;
+            setTimeout(() => { network.moveTo({ position: { x: -50, y: 0 }, scale: 1.0, animation: false }); }, 50);
+        } else if (nodesAdded && autoFollow && InitialLayoutDone) {
+            // Find max X to auto-scroll gracefully to the leading edge of the workflow trace!
+            let maxX = -50;
+            nodes.forEach(n => { if (n.x > maxX) maxX = n.x; });
+            network.moveTo({
+                position: { x: maxX - 200, y: 0 },
+                scale: currentZoom,
+                animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+            });
+        }
+    }
+
+    function renderInspector(data) {
+        if (!data) return;
+        let text = '';
+        const escapeHtmlRaw = (unsafe) => unsafe ? unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;") : '';
+        
+        const renderMarkdown = (mdStr) => {
+            if (!mdStr) return '';
+            try { return marked.parse(mdStr); } 
+            catch (e) { return escapeHtmlRaw(mdStr); }
+        };
+        
+        let icon = ''; let titleColor = '#202124';
+        
+        if (data.type === 'USER_INPUT') {
+            titleColor = '#F57C00'; icon = '👤 ';
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' USER ACTION</div>' +
+                     '<div class="inspector-section"><div class="inspector-label">Prompt Content</div>' +
+                     '<div class="markdown-body">' + renderMarkdown(data.content) + '</div></div>';
+        } else if (data.type === 'PLANNER_RESPONSE') {
+            titleColor = '#8E24AA'; icon = '🧠 ';
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' MAIN AGENT (ROUTER)</div>';
+            if (data.thinking) {
+                text += '<div class="inspector-section"><div class="inspector-label">Internal Thoughts & Reasoning</div>' +
+                     '<div class="markdown-body" style="background:var(--secondary, #f8f9fa); padding: 12px; border-radius: 6px; border: 1px solid var(--border, #eee);max-height: 500px; overflow-y: auto;">' + renderMarkdown(data.thinking) + '</div></div>';
+            }
+            if (data.content) {
+                text += '<div class="inspector-section"><div class="inspector-label">Output Message</div>' +
+                     '<div class="markdown-body">' + renderMarkdown(data.content) + '</div></div>';
+            }
+        } else if (data.type === 'TOOL_CALL') {
+            const tool = data.tool;
+            const isSubagent = tool.name === 'invoke_subagent';
+            titleColor = isSubagent ? '#3F51B5' : '#00BCD4';
+            icon = isSubagent ? '🤖 ' : '🔧 ';
+            
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + escapeHtmlRaw(tool.name).toUpperCase() + '</div>' +
+                     '<div class="inspector-section"><div class="inspector-label">Action / Parameters</div>' +
+                     '<pre>' + escapeHtmlRaw(JSON.stringify(tool.arguments, null, 2)) + '</pre></div>';
+        }
+        
+        text += '<div class="inspector-section" style="margin-top:24px; border-top:1px solid var(--border,#e8eaed); padding-top:16px;">' +
+                    '<div class="inspector-label">Raw Trace Data</div>' +
+                    '<pre style="background:var(--secondary,#f8f9fa); background:rgba(0,0,0,0.03); max-height:250px;">' + escapeHtmlRaw(JSON.stringify(data, null, 2)) + '</pre></div>';
+        
+        inspectorEl.innerHTML = text;
+    }
+</script>
+</body>
+</html>

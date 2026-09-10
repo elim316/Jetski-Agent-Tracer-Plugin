@@ -1,0 +1,4 @@
+{
+  "name": "agent-tracer-plugin",
+  "description": "Live Trajectory Flow Graph visualizing agent thoughts, tools, and subagents globally"
+}

@@ -1,0 +1,18 @@
+{
+  "display_name": "Agent Tracer",
+  "description": "Live Trajectory Flow Graph visualizing agent thoughts, tools, and subagents",
+  "command": "python3",
+  "args": ["server.py"],
+  "restart_policy": "always",
+  "has_web_ui": true,
+  "ui_config": {
+    "display_name": "Agent Tracer",
+    "views": [
+      {
+        "path": "/",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "title": "Tracer Graph"
+      }
+    ]
+  }
+}
