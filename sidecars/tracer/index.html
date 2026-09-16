@@ -25,8 +25,18 @@
         
         .swimlanes-labels { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; z-index: 2; pointer-events: none; }
         .swimlane-row-label { flex: 1; position: relative; }
-        .swimlane-header { font-weight: 600; font-size: 13px; color: var(--muted-foreground, #5f6368); padding: 10px 14px; background: rgba(255,255,255,0.85); box-shadow: 1px 1px 3px rgba(0,0,0,0.05); display: inline-block; border-bottom-right-radius: 8px; border-right: 1px solid var(--border, #dadce0); border-bottom: 1px solid var(--border, #dadce0); pointer-events: auto; cursor: pointer; transition: all 0.2s ease; }
-        .swimlane-header:hover { background: #fff; box-shadow: 1px 2px 6px rgba(0,0,0,0.1); color: var(--foreground, #202124); }
+        .swimlane-header { font-weight: 600; font-size: 13px; color: var(--muted-foreground, #5f6368); padding: 10px 14px; background: var(--card, #fff); opacity: 0.92; box-shadow: 1px 1px 3px rgba(0,0,0,0.05); display: inline-block; border-bottom-right-radius: 8px; border-right: 1px solid var(--border, #dadce0); border-bottom: 1px solid var(--border, #dadce0); pointer-events: auto; cursor: pointer; transition: all 0.2s ease; }
+        .swimlane-header:hover { background: var(--card, #fff); opacity: 1; box-shadow: 1px 2px 6px rgba(0,0,0,0.1); color: var(--foreground, #202124); }
+
+        /* Search + issue navigation */
+        #searchBox { background: var(--background, #fff); color: var(--foreground, #202124); border: 1px solid var(--border, #dadce0); border-radius: 4px; padding: 5px 9px; font-size: 12px; width: 150px; outline: none; transition: border-color 0.15s ease, width 0.15s ease; }
+        #searchBox:focus { border-color: var(--primary, #1a73e8); width: 200px; }
+        #searchBox::placeholder { color: var(--muted-foreground, #9aa0a6); }
+        #searchCount { font-size: 11px; color: var(--muted-foreground, #80868b); min-width: 42px; }
+        #btnNextIssue { background: transparent; border: 1px solid var(--border, #dadce0); border-radius: 4px; padding: 5px 9px; font-size: 12px; cursor: pointer; color: var(--muted-foreground, #5f6368); font-weight: 600; transition: all 0.15s ease; }
+        #btnNextIssue.has-issues { border-color: #D93025; color: #D93025; }
+        #btnNextIssue.has-issues:hover { background: rgba(217,48,37,0.08); }
+        #btnNextIssue:disabled { opacity: 0.45; cursor: default; }
         
         #graph-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1; }
 
@@ -78,7 +88,13 @@
 
             <div style="display:flex; align-items:center; gap: 6px; font-size: 13px; color: var(--muted-foreground, #5f6368); margin-left: 8px;">
                 <input type="checkbox" id="toggleSimpleView" checked style="cursor: pointer;">
-                <label for="toggleSimpleView" style="cursor: pointer; user-select: none; font-weight: 500;" title="Hides router nodes that contain no reasoning, connecting actions directly to the timeline">Simple View</label>
+                <label for="toggleSimpleView" style="cursor: pointer; user-select: none; font-weight: 500;" title="Hides router nodes that contain no reasoning, plus system/context noise">Simple View</label>
+            </div>
+
+            <div style="display:flex; align-items:center; gap: 8px; border-left: 1px solid var(--border, #dadce0); padding-left: 20px;">
+                <input type="text" id="searchBox" placeholder="Search trace…" title="Filter nodes by tool name, prompt or thought text">
+                <span id="searchCount"></span>
+                <button id="btnNextIssue" title="Jump to the next error or failed step" disabled>⚠ Issues</button>
             </div>
             
             <div style="display:flex; align-items:center; gap: 8px; border-left: 1px solid var(--border, #dadce0); padding-left: 20px;">
@@ -148,10 +164,15 @@
     
     let activeConvId = getActiveConversationId();
     let emptyStateRendered = false;
+    // Accumulates transcript steps across incremental polls (keyed merge by step_index).
+    let transcriptStore = [];
 
     // --- Timeline scrubber -------------------------------------------------
     // Checkpoints mark every user request so they can be jumped to directly.
     let checkpoints = [];
+    // Errored/failed nodes, in timeline order, for the "next issue" jump button.
+    let issueNodes = [];
+    let issueCursor = -1;
     const scrubberTrack = document.getElementById('scrubberTrack');
     const scrubberView = document.getElementById('scrubberView');
     const scrubberCount = document.getElementById('scrubberCount');
@@ -266,34 +287,142 @@
         });
     }
     
-    let showSummaries = true;
+    // --- Preference persistence -------------------------------------------
+    // Toggle states survive reloads so the view doesn't reset every time.
+    const PREF_KEY = 'agentTracer.prefs';
+    function loadPrefs() {
+        try { return JSON.parse(localStorage.getItem(PREF_KEY)) || {}; }
+        catch (e) { return {}; }
+    }
+    function savePref(key, value) {
+        try {
+            const p = loadPrefs();
+            p[key] = value;
+            localStorage.setItem(PREF_KEY, JSON.stringify(p));
+        } catch (e) { /* storage unavailable; preferences just won't persist */ }
+    }
+    const prefs = loadPrefs();
+
+    let showSummaries = prefs.showSummaries !== undefined ? prefs.showSummaries : true;
     const toggleSummaries = document.getElementById('toggleSummaries');
     if (toggleSummaries) {
+        toggleSummaries.checked = showSummaries;
         toggleSummaries.addEventListener('change', (e) => {
             showSummaries = e.target.checked;
+            savePref('showSummaries', showSummaries);
             if (network) network.redraw();
         });
     }
 
-    let autoFollow = true;
+    let autoFollow = prefs.autoFollow !== undefined ? prefs.autoFollow : true;
     const toggleAutoFollow = document.getElementById('toggleAutoFollow');
     if (toggleAutoFollow) {
+        toggleAutoFollow.checked = autoFollow;
         toggleAutoFollow.addEventListener('change', (e) => {
             autoFollow = e.target.checked;
+            savePref('autoFollow', autoFollow);
         });
     }
 
-    let simpleView = true;
+    let simpleView = prefs.simpleView !== undefined ? prefs.simpleView : true;
     const toggleSimpleView = document.getElementById('toggleSimpleView');
     if (toggleSimpleView) {
+        toggleSimpleView.checked = simpleView;
         toggleSimpleView.addEventListener('change', (e) => {
             simpleView = e.target.checked;
-            // Node topology changes, so the graph must be rebuilt from the raw transcript.
-            nodes.clear();
-            edges.clear();
-            rawDataMap = {};
-            InitialLayoutDone = false;
-            if (window.lastTranscript) updateGraph(window.lastTranscript);
+            savePref('simpleView', simpleView);
+            rebuildGraph();
+        });
+    }
+
+    function rebuildGraph() {
+        // Node topology changes, so the graph must be rebuilt from the raw transcript.
+        nodes.clear();
+        edges.clear();
+        rawDataMap = {};
+        InitialLayoutDone = false;
+        if (window.lastTranscript) updateGraph(window.lastTranscript);
+    }
+
+    // --- Search / filter ---------------------------------------------------
+    // Dims non-matching nodes rather than removing them, so the timeline shape
+    // stays recognisable while you scan for a match.
+    let searchTerm = '';
+    const searchBox = document.getElementById('searchBox');
+    const searchCount = document.getElementById('searchCount');
+
+    function applySearch() {
+        if (!nodes || !nodes.length) return;
+        const term = searchTerm.trim().toLowerCase();
+        const updates = [];
+        let matches = [];
+
+        nodes.forEach(n => {
+            if (!term) {
+                updates.push({ id: n.id, opacity: 1 });
+                return;
+            }
+            const hay = ((n.label || '') + ' ' + searchHaystack(rawDataMap[n.id])).toLowerCase();
+            const hit = hay.indexOf(term) !== -1;
+            if (hit) matches.push({ id: n.id, x: n.x });
+            updates.push({ id: n.id, opacity: hit ? 1 : 0.18 });
+        });
+
+        nodes.update(updates);
+        searchMatches = matches.sort((a, b) => a.x - b.x);
+        searchCursor = -1;
+        if (searchCount) {
+            searchCount.textContent = term ? (matches.length ? matches.length + ' hit' + (matches.length === 1 ? '' : 's') : 'none') : '';
+        }
+    }
+
+    function searchHaystack(d) {
+        if (!d) return '';
+        if (d.type === 'TOOL_CALL') {
+            const a = (d.tool && (d.tool.arguments || d.tool.args)) || {};
+            return (d.tool ? d.tool.name : '') + ' ' + JSON.stringify(a) + ' ' + (d.result || '');
+        }
+        return (d.content || '') + ' ' + (d.thinking || '');
+    }
+
+    let searchMatches = [];
+    let searchCursor = -1;
+
+    if (searchBox) {
+        let searchTimer = null;
+        searchBox.addEventListener('input', (e) => {
+            searchTerm = e.target.value;
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(applySearch, 180);
+        });
+        // Enter steps through matches left to right.
+        searchBox.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { searchBox.value = ''; searchTerm = ''; applySearch(); searchBox.blur(); return; }
+            if (e.key !== 'Enter' || !searchMatches.length) return;
+            searchCursor = (searchCursor + 1) % searchMatches.length;
+            const m = searchMatches[searchCursor];
+            jumpToX(m.x);
+            if (rawDataMap[m.id]) renderInspector(rawDataMap[m.id]);
+            if (searchCount) searchCount.textContent = (searchCursor + 1) + '/' + searchMatches.length;
+        });
+    }
+
+    // --- Issue navigation --------------------------------------------------
+    const btnNextIssue = document.getElementById('btnNextIssue');
+    function refreshIssueButton() {
+        if (!btnNextIssue) return;
+        const n = issueNodes.length;
+        btnNextIssue.disabled = n === 0;
+        btnNextIssue.classList.toggle('has-issues', n > 0);
+        btnNextIssue.textContent = n ? '⚠ ' + n + ' issue' + (n === 1 ? '' : 's') : '⚠ No issues';
+    }
+    if (btnNextIssue) {
+        btnNextIssue.addEventListener('click', () => {
+            if (!issueNodes.length) return;
+            issueCursor = (issueCursor + 1) % issueNodes.length;
+            const target = issueNodes[issueCursor];
+            jumpToX(target.x);
+            if (rawDataMap[target.id]) renderInspector(rawDataMap[target.id]);
         });
     }
 
@@ -369,6 +498,8 @@
             rawDataMap = {};
             InitialLayoutDone = false;
             emptyStateRendered = false;
+            transcriptStore = [];
+            window.lastTranscript = [];
             document.getElementById('status-indicator').innerHTML = `<div class="status-dot"></div> Live Workflow`;
         }
         if (!activeConvId) {
@@ -377,10 +508,27 @@
         }
 
         try {
-            const res = await fetch(`/api/transcript?conversationId=${encodeURIComponent(activeConvId)}`);
+            // Only ask for steps we don't have yet. We rewind to just before the
+            // earliest non-DONE step so in-flight steps get refreshed as they settle.
+            let since = -1;
+            if (transcriptStore.length) {
+                const pending = transcriptStore.find(s => s.status && s.status !== 'DONE');
+                since = pending ? pending.step_index - 1
+                                : transcriptStore[transcriptStore.length - 1].step_index;
+            }
+
+            const res = await fetch(`/api/transcript?conversationId=${encodeURIComponent(activeConvId)}&since=${since}`);
             if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            
+            const incoming = await res.json();
+
+            if (incoming.length) {
+                // Merge by step_index so refreshed steps replace rather than duplicate.
+                const byIndex = new Map(transcriptStore.map(s => [s.step_index, s]));
+                incoming.forEach(s => byIndex.set(s.step_index, s));
+                transcriptStore = Array.from(byIndex.values()).sort((a, b) => a.step_index - b.step_index);
+            }
+            const data = transcriptStore;
+
             if (data.length === 0 && !emptyStateRendered && nodes.length === 0) {
                 document.getElementById('graph-container').innerHTML = '<div class="empty-state" style="margin-top:150px;"><h2>Waiting for Agent Activity...</h2><p>Submit a prompt to start tracing the graph.</p></div>';
                 emptyStateRendered = true;
@@ -392,7 +540,8 @@
                 }
                 // Cached so view-mode toggles can rebuild instantly without re-fetching.
                 window.lastTranscript = data;
-                updateGraph(data);
+                // Only re-render when something actually arrived.
+                if (incoming.length) updateGraph(data);
             }
         } catch (e) {
             console.error("Poll Error:", e);
@@ -558,6 +707,22 @@
         let newNodes = []; let newEdges = [];
         let previousPlannerId = null; let currentX = -200; 
         checkpoints = [];
+        issueNodes = [];
+
+        // Tool *results* arrive as separate GENERIC steps immediately following the
+        // planner step that issued the calls, in the same order. Pair them up front
+        // so each tool node can show its output instead of only its parameters.
+        const resultsFor = {};
+        for (let i = 0; i < data.length; i++) {
+            const s = data[i];
+            if (s.type !== 'PLANNER_RESPONSE' || !s.tool_calls || !s.tool_calls.length) continue;
+            const found = [];
+            for (let j = i + 1; j < data.length && found.length < s.tool_calls.length; j++) {
+                if (data[j].type !== 'GENERIC') break;
+                found.push(data[j]);
+            }
+            if (found.length) resultsFor[s.step_index] = found;
+        }
         
         let turns = []; let currentTurn = null;
         let Y_USER = BASE_Y_USER / currentZoom;  
@@ -585,7 +750,55 @@
                 previousPlannerId = uId;
                 // Register a jump target for the scrubber bar.
                 checkpoints.push({ id: uId, x: currentX, label: truncate(step.content ? step.content : 'Initiating...', 140) });
-            } 
+            }
+            else if (step.type === 'ERROR_MESSAGE') {
+                // Errors were previously dropped entirely. They must always be visible.
+                currentX += 260;
+                let eId = 'error_' + index;
+                if (!nodes.get(eId)) {
+                    let summary = wrapText(truncate(step.content || 'Unknown error', 90), 30);
+                    newNodes.push({ id: eId, label: '⛔ ERROR\n' + summary, shape: 'box',
+                        color: { background: '#FCE8E6', border: '#D93025' },
+                        font: { color: '#A50E0E', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                    rawDataMap[eId] = step;
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: eId, arrows: 'to', color: { color: '#D93025' }, width: 3 });
+                }
+                previousPlannerId = eId;
+                issueNodes.push({ id: eId, x: currentX });
+                if (currentTurn) currentTurn.maxX = currentX;
+            }
+            else if (step.type === 'CHECKPOINT') {
+                // Context compaction milestone - a genuinely meaningful boundary.
+                currentX += 260;
+                let cId = 'ckpt_' + index;
+                if (!nodes.get(cId)) {
+                    newNodes.push({ id: cId, label: '🗜 CONTEXT CHECKPOINT\nEarlier history summarized', shape: 'box',
+                        color: { background: '#E8EAED', border: '#9AA0A6' },
+                        font: { color: '#3C4043', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                    rawDataMap[cId] = step;
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: cId, arrows: 'to', dashes: [4, 4], color: { color: '#9AA0A6' } });
+                }
+                previousPlannerId = cId;
+                if (currentTurn) currentTurn.maxX = currentX;
+            }
+            else if (step.type === 'SYSTEM_MESSAGE' || step.type === 'EPHEMERAL_MESSAGE') {
+                // Context injections and system notices: real, but noisy. Advanced view only.
+                if (simpleView) return;
+                currentX += 240;
+                let sId = 'sys_' + index;
+                const isEphemeral = step.type === 'EPHEMERAL_MESSAGE';
+                if (!nodes.get(sId)) {
+                    let title = isEphemeral ? '💤 CONTEXT INJECTION' : '📋 SYSTEM NOTICE';
+                    let summary = wrapText(truncate(step.content || '', 60), 30);
+                    newNodes.push({ id: sId, label: title + '\n' + summary, shape: 'box',
+                        color: { background: '#F1F3F4', border: '#BDC1C6' },
+                        font: { color: '#5F6368', align: 'left', multi: false }, x: currentX, y: Y_USER });
+                    rawDataMap[sId] = step;
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: sId, arrows: 'to', dashes: [2, 3], color: { color: '#BDC1C6' } });
+                }
+                previousPlannerId = sId;
+                if (currentTurn) currentTurn.maxX = currentX;
+            }
             else if (step.type === 'PLANNER_RESPONSE') {
                 // A router node with no thinking AND no output is pure overhead: the agent
                 // went straight to a tool. In Simple View we collapse it and wire its tools
@@ -626,10 +839,29 @@
                             let targs = tool.arguments || tool.args || {};
                             let tSummary = wrapText(truncate(targs.toolSummary ? targs.toolSummary : extractFallbackSummary(targs), 45), 28);
                             let title = isSubagent ? '🤖 SUBAGENT: ' + (targs.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
-                            let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' }; 
-                                
-                            newNodes.push({ id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color, font: { color: isSubagent ? '#1A237E' : '#006064', align: 'left', multi: false }, x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL });
-                            rawDataMap[toolId] = { type: 'TOOL_CALL', step: step, tool: tool };
+                            let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' };
+
+                            // Pair this call with the GENERIC step that carried its output.
+                            const resSteps = resultsFor[step.step_index];
+                            const resultStep = resSteps && resSteps[tIdx] ? resSteps[tIdx] : null;
+                            const resultText = resultStep ? (resultStep.content || '') : '';
+                            const failed = /^\s*(Error|Encountered error|Failed)\b/i.test(resultText);
+                            const running = step.status === 'RUNNING' || (!resultStep && step.status !== 'DONE');
+
+                            if (failed) {
+                                title = '⛔ FAILED: ' + tool.name;
+                                color = { background: '#FCE8E6', border: '#D93025' };
+                            } else if (running) {
+                                title = '⏳ RUNNING: ' + tool.name;
+                                color = { background: '#FEF7E0', border: '#F9AB00' };
+                            }
+
+                            newNodes.push({ id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color,
+                                font: { color: failed ? '#A50E0E' : (isSubagent ? '#1A237E' : '#006064'), align: 'left', multi: false },
+                                shapeProperties: running ? { borderDashes: [5, 4] } : { borderDashes: false },
+                                x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL });
+                            rawDataMap[toolId] = { type: 'TOOL_CALL', step: step, tool: tool, result: resultText, resultStep: resultStep, failed: failed, running: running };
+                            if (failed) issueNodes.push({ id: toolId, x: toolX });
                             // Collapsed steps get a dotted edge to signal a skipped router round-trip.
                             if (anchorId) newEdges.push({ from: anchorId, to: toolId, arrows: 'to, from', color: { color: '#78909c' }, width: 2, dashes: collapse ? [2, 4] : false });
                         }
@@ -666,7 +898,36 @@
 
         renderScrubber();
         updateScrubberViewport();
+        refreshIssueButton();
+        // Newly added nodes must inherit the active filter, not appear fully lit.
+        if (searchTerm.trim()) applySearch();
     }
+
+    // The compact transcript abbreviates long fields and lists them in
+    // `truncated_fields`. Surface that instead of silently showing a partial value.
+    function truncationNotice(step) {
+        if (!step || !step.truncated_fields || !step.truncated_fields.length) return '';
+        const fields = step.truncated_fields.join(', ');
+        return '<div style="margin-top:8px; font-size:12px; color:#996C00; background:#FEF7E0; border:1px solid #F9AB00; border-radius:6px; padding:8px 10px;">' +
+               '⚠ Abbreviated in this log (' + fields + '). ' +
+               '<a href="#" onclick="window.loadFullStep(' + step.step_index + '); return false;" style="color:#1a73e8; font-weight:600;">Load full version</a></div>';
+    }
+
+    // Fetches the untruncated step and drops it into the inspector.
+    window.loadFullStep = async function(stepIndex) {
+        try {
+            const res = await fetch(`/api/step_full?conversationId=${encodeURIComponent(activeConvId)}&step=${stepIndex}`);
+            if (!res.ok) throw new Error(await res.text());
+            const full = await res.json();
+            if (!full || full.step_index === undefined) {
+                alert('Full version not available for this step.');
+                return;
+            }
+            renderInspector(full.type === 'GENERIC' ? { type: 'TOOL_CALL', step: full, tool: { name: 'result', args: {} }, result: full.content || '', resultStep: null } : full);
+        } catch (e) {
+            console.error('Failed to load full step:', e);
+        }
+    };
 
     function renderInspector(data) {
         if (!data) return;
@@ -685,7 +946,8 @@
             titleColor = '#F57C00'; icon = '👤 ';
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' USER ACTION</div>' +
                      '<div class="inspector-section"><div class="inspector-label">Prompt Content</div>' +
-                     '<div class="markdown-body">' + renderMarkdown(data.content) + '</div></div>';
+                     '<div class="markdown-body">' + renderMarkdown(data.content) + '</div>' +
+                     truncationNotice(data) + '</div>';
         } else if (data.type === 'PLANNER_RESPONSE') {
             titleColor = '#8E24AA'; icon = '🧠 ';
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' MAIN AGENT (ROUTER)</div>';
@@ -725,12 +987,42 @@
 
             if (data.thinking) {
                 text += '<div class="inspector-section"><div class="inspector-label">Internal Thoughts & Reasoning</div>' +
-                     '<div class="markdown-body" style="background:var(--secondary, #f8f9fa); padding: 12px; border-radius: 6px; border: 1px solid var(--border, #eee);max-height: 500px; overflow-y: auto;">' + renderMarkdown(data.thinking) + '</div></div>';
+                     '<div class="markdown-body" style="background:var(--secondary, #f8f9fa); padding: 12px; border-radius: 6px; border: 1px solid var(--border, #eee);max-height: 500px; overflow-y: auto;">' + renderMarkdown(data.thinking) + '</div>' +
+                     truncationNotice(data) + '</div>';
             }
             if (data.content) {
                 text += '<div class="inspector-section"><div class="inspector-label">Output Message</div>' +
                      '<div class="markdown-body">' + renderMarkdown(data.content) + '</div></div>';
             }
+        } else if (data.type === 'ERROR_MESSAGE') {
+            titleColor = '#D93025'; icon = '⛔ ';
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' ERROR</div>' +
+                    '<div class="inspector-section"><div class="inspector-label">What went wrong</div>' +
+                    '<div style="background:#FCE8E6; border:1px solid #D93025; border-radius:6px; padding:14px; font-size:13px; color:#A50E0E; white-space:pre-wrap; word-break:break-word;">' +
+                    escapeHtmlRaw(data.content || 'No detail recorded.') + '</div>' +
+                    truncationNotice(data) + '</div>';
+        } else if (data.type === 'CHECKPOINT') {
+            titleColor = '#5F6368'; icon = '🗜 ';
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' CONTEXT CHECKPOINT</div>' +
+                    '<div class="inspector-section"><div class="inspector-label">Why this exists</div>' +
+                    '<div style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid #9AA0A6; border-radius:6px; padding:14px; font-size:13px; line-height:1.5;">' +
+                    'The conversation grew too long for the model\'s context window, so earlier history was compressed into the summary below. Everything before this point is no longer read verbatim by the agent.</div></div>' +
+                    '<div class="inspector-section"><div class="inspector-label">Summary retained</div>' +
+                    '<div class="markdown-body" style="max-height:420px; overflow-y:auto;">' + renderMarkdown(data.content) + '</div>' +
+                    truncationNotice(data) + '</div>';
+        } else if (data.type === 'SYSTEM_MESSAGE' || data.type === 'EPHEMERAL_MESSAGE') {
+            const isEph = data.type === 'EPHEMERAL_MESSAGE';
+            titleColor = '#5F6368'; icon = isEph ? '💤 ' : '📋 ';
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + (isEph ? ' CONTEXT INJECTION' : ' SYSTEM NOTICE') + '</div>' +
+                    '<div class="inspector-section"><div class="inspector-label">Why this exists</div>' +
+                    '<div style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid #BDC1C6; border-radius:6px; padding:14px; font-size:13px; line-height:1.5;">' +
+                    (isEph
+                        ? 'Background context the platform injected for the agent to read — relevant memories, available skills, and environment details. Not written by you or the agent.'
+                        : 'A notice from the platform itself, such as a restart or a state change. Not written by you or the agent.') +
+                    '</div></div>' +
+                    '<div class="inspector-section"><div class="inspector-label">Content</div>' +
+                    '<div class="markdown-body" style="max-height:420px; overflow-y:auto;">' + renderMarkdown(data.content) + '</div>' +
+                    truncationNotice(data) + '</div>';
         } else if (data.type === 'TOOL_CALL') {
             const tool = data.tool;
             const isSubagent = tool.name === 'invoke_subagent';
@@ -770,6 +1062,21 @@
                             '<div style="font-size:13px; color:var(--foreground,#202124); word-break:break-word; white-space:pre-wrap;">' + val + '</div></div>';
                 });
                 text += '<div class="inspector-section"><div class="inspector-label">Details</div>' + rows + '</div>';
+            }
+
+            // The tool's actual output, paired from the following GENERIC step.
+            if (data.running) {
+                text += '<div class="inspector-section"><div class="inspector-label">Result</div>' +
+                        '<div style="background:#FEF7E0; border:1px solid #F9AB00; border-radius:6px; padding:12px; font-size:13px; color:#996C00;">' +
+                        '⏳ Still running — no result recorded yet.</div></div>';
+            } else if (data.result) {
+                const accent = data.failed ? '#D93025' : '#34A853';
+                const bg = data.failed ? '#FCE8E6' : 'var(--secondary,#f8f9fa)';
+                text += '<div class="inspector-section"><div class="inspector-label">' +
+                        (data.failed ? 'Result — failed' : 'Result') + '</div>' +
+                        '<div style="background:' + bg + '; border:1px solid var(--border,#eee); border-left:4px solid ' + accent + '; border-radius:6px; padding:12px; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:320px; overflow-y:auto; font-family:ui-monospace, monospace; color:var(--foreground,#202124);">' +
+                        escapeHtmlRaw(truncate(data.result, 4000)) + '</div>';
+                text += truncationNotice(data.resultStep) + '</div>';
             }
         }
         
