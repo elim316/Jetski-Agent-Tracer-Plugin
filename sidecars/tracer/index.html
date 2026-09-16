@@ -28,6 +28,22 @@
         .tb-btn { background: var(--secondary, #e8f0fe); border: none; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-weight: 600; color: var(--primary, #1a73e8); white-space: nowrap; transition: opacity 0.2s; }
         .tb-btn.ghost { background: var(--card, #fff); border: 1px solid var(--border, #dadce0); color: var(--foreground, #3c4043); font-weight: 500; }
 
+        /* Sticky goal bar. The turn label used to be painted onto the canvas at
+           the left edge of its band, so it scrolled out of view as soon as you
+           panned into a long turn — precisely when you most need reminding what
+           the agent is working on. A pinned strip always answers that. */
+        .goalbar { display: flex; align-items: flex-start; gap: 12px; padding: 9px 14px; background: var(--card, #fff); border-bottom: 1px solid var(--border, #dadce0); box-shadow: inset 3px 0 0 #4285F4; flex-shrink: 0; box-sizing: border-box; }
+        .goalbar.hidden { display: none; }
+        .goalbar-pill { flex-shrink: 0; margin-top: 1px; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: #1967D2; background: rgba(66,133,244,0.12); border-radius: 12px; padding: 4px 9px; white-space: nowrap; }
+        .goalbar-body { flex: 1; min-width: 0; cursor: pointer; }
+        .goalbar-request { font-size: 13px; font-weight: 600; color: var(--foreground, #202124); line-height: 1.4; }
+        .goalbar-intent { font-size: 12px; color: var(--muted-foreground, #5f6368); line-height: 1.4; margin-top: 2px; }
+        /* Collapsed by default to one line each; clicking the body reveals the rest. */
+        .goalbar:not(.expanded) .goalbar-request,
+        .goalbar:not(.expanded) .goalbar-intent { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+        .goalbar-body:hover .goalbar-request { color: var(--primary, #1a73e8); }
+        #goalBarJump { flex-shrink: 0; }
+
         .canvas-wrapper { flex: 1; min-height: 0; width: 100%; position: relative; overflow: hidden; cursor: grab; }
         .canvas-wrapper:active { cursor: grabbing; }
         
@@ -128,6 +144,16 @@
                 <button id="btnJumpEnd" class="tb-btn" title="Jump to the latest step">End ⏭</button>
             </div>
         </div>
+    </div>
+
+    <!-- Always-visible context strip telling you which request the camera is inside. -->
+    <div class="goalbar hidden" id="goalBar">
+        <div class="goalbar-pill" id="goalBarPill">REQUEST</div>
+        <div class="goalbar-body" id="goalBarBody" title="Click to expand the full text">
+            <div class="goalbar-request" id="goalBarRequest"></div>
+            <div class="goalbar-intent" id="goalBarIntent"></div>
+        </div>
+        <button class="tb-btn" id="goalBarJump" title="Scroll back to the start of this request">⤴ Go to request</button>
     </div>
 
     <div class="canvas-wrapper" id="canvas-wrapper">
@@ -286,6 +312,81 @@
         width = Math.max(3, Math.min(100 - left, width));
         scrubberView.style.left = left + '%';
         scrubberView.style.width = width + '%';
+    }
+
+    // --- Sticky goal bar ---------------------------------------------------
+    // Mirrors whichever turn the camera currently sits in, so the request being
+    // worked on is always legible no matter how far along the trace you've panned.
+    let activeGoalTurn = null;
+    let activeGoalKey = null;
+    const goalBar = document.getElementById('goalBar');
+    const goalBarPill = document.getElementById('goalBarPill');
+    const goalBarRequest = document.getElementById('goalBarRequest');
+    const goalBarIntent = document.getElementById('goalBarIntent');
+
+    function turnAtX(x) {
+        const turns = window.graphTurns || [];
+        if (!turns.length) return null;
+        // Bands are drawn with ~130px of padding, so treat that as still "inside".
+        const inside = turns.find(t => x >= t.minX - 130 && x <= t.maxX + 130);
+        if (inside) return inside;
+        // Otherwise snap to whichever turn the camera is closest to.
+        let best = null, bestDist = Infinity;
+        turns.forEach(t => {
+            const dist = x < t.minX ? t.minX - x : (x > t.maxX ? x - t.maxX : 0);
+            if (dist < bestDist) { bestDist = dist; best = t; }
+        });
+        return best;
+    }
+
+    function updateGoalBar() {
+        if (!goalBar) return;
+        const turns = window.graphTurns || [];
+        if (!network || !turns.length) { goalBar.classList.add('hidden'); return; }
+
+        const turn = turnAtX(network.getViewPosition().x);
+        if (!turn) { goalBar.classList.add('hidden'); return; }
+
+        // Always keep the freshest object so jump coordinates stay accurate, but
+        // only repaint when the turn genuinely changes. updateGraph rebuilds the
+        // turn array on every poll, so an object-identity check would repaint
+        // constantly and collapse the bar while the user is reading it.
+        activeGoalTurn = turn;
+        const key = turn.num + '|' + (turn.request || '');
+        if (key === activeGoalKey) return;
+        activeGoalKey = key;
+
+        goalBar.classList.remove('hidden');
+        goalBar.classList.remove('expanded');
+
+        const total = turns.filter(t => t.num > 0).length;
+        goalBarPill.textContent = turn.num > 0
+            ? 'REQUEST ' + turn.num + (total > 1 ? ' / ' + total : '')
+            : 'SESSION START';
+        goalBarRequest.textContent = turn.request || '—';
+        goalBarIntent.textContent = turn.intent ? '↳ ' + turn.intent : '';
+        goalBarIntent.style.display = turn.intent ? '' : 'none';
+    }
+
+    // Both overlays read the camera, so keep them updated together.
+    function syncViewportUI() {
+        updateScrubberViewport();
+        updateGoalBar();
+    }
+
+    if (goalBar) {
+        // Body click expands to the untruncated text; the button navigates.
+        document.getElementById('goalBarBody').addEventListener('click', () => {
+            goalBar.classList.toggle('expanded');
+        });
+        document.getElementById('goalBarJump').addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!activeGoalTurn) return;
+            jumpToX(activeGoalTurn.minX);
+            if (activeGoalTurn.nodeId && rawDataMap[activeGoalTurn.nodeId]) {
+                renderInspector(rawDataMap[activeGoalTurn.nodeId]);
+            }
+        });
     }
 
     if (scrubberTrack) {
@@ -459,6 +560,7 @@
             });
             nodes.update(updates);
             network.moveTo({ scale: currentZoom, animation: false });
+            syncViewportUI();
         });
     }
     
@@ -582,6 +684,9 @@
                 autoFollow = false;
                 if (toggleAutoFollow) toggleAutoFollow.checked = false;
             }
+            // vis only emits its own pan events when dragView is enabled, which it
+            // isn't here, so the overlays have to be refreshed by hand.
+            syncViewportUI();
             e.preventDefault();
         }
     });
@@ -604,6 +709,7 @@
                 if (toggleAutoFollow) toggleAutoFollow.checked = false;
             }
             lastX = e.clientX;
+            syncViewportUI();
         }
     });
 
@@ -629,6 +735,9 @@
         
         network = new vis.Network(container, graphData, options);
         
+        // Draws the translucent band grouping each turn. The goal text itself is no
+        // longer painted here — canvas text scrolls away with the graph and shrinks
+        // with zoom. It lives in the sticky goal bar above the canvas instead.
         network.on("beforeDrawing", function (ctx) {
             if (!showSummaries || !window.graphTurns || window.graphTurns.length === 0) return;
             
@@ -647,30 +756,6 @@
                 if (ctx.roundRect) ctx.roundRect(x, y, width, height, 16);
                 else ctx.rect(x, y, width, height); 
                 ctx.fill(); ctx.stroke();
-                
-                ctx.fillStyle = "#1967D2";
-                ctx.font = "bold 13px -apple-system, sans-serif";
-                ctx.textAlign = "left";  
-                ctx.textBaseline = "top";
-                
-                let maxWidth = width - 40;
-                let words = turn.summary.split(' ');
-                let line = '';
-                let offsetY = y + 16;
-                let drawX = x + 20; 
-                
-                for(let n = 0; n < words.length; n++) {
-                    let testLine = line + words[n] + ' ';
-                    let metrics = ctx.measureText(testLine);
-                    if (metrics.width > maxWidth && n > 0) {
-                        ctx.fillText(line, drawX, offsetY);
-                        line = words[n] + ' ';
-                        offsetY += 18;
-                    } else {
-                        line = testLine;
-                    }
-                }
-                ctx.fillText(line, drawX, offsetY);
             });
         });
         
@@ -682,16 +767,30 @@
             }
         });
 
-        // Keep the scrubber's blue viewport window in sync with the camera.
-        network.on('dragging', updateScrubberViewport);
-        network.on('dragEnd', updateScrubberViewport);
-        network.on('zoom', updateScrubberViewport);
-        network.on('animationFinished', updateScrubberViewport);
+        // Keep the scrubber window and the goal bar in sync with the camera.
+        network.on('dragging', syncViewportUI);
+        network.on('dragEnd', syncViewportUI);
+        network.on('zoom', syncViewportUI);
+        network.on('animationFinished', syncViewportUI);
     }
 
     function truncate(str, n) {
         if (!str) return 'Executing operation...';
         return (str.length > n) ? str.substr(0, parseInt(n)-1) + '...' : str;
+    }
+
+    // Prompts are stored wrapped in an envelope (`<USER_REQUEST>`) with metadata
+    // and system blocks appended. Showing that raw is noise — strip it back to
+    // what the person actually typed.
+    function cleanUserText(str) {
+        if (!str) return '';
+        return str
+            .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, '')
+            .replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/g, '')
+            .replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/g, '')
+            .replace(/<\/?[A-Z_]+>/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
     }
 
     function extractFallbackSummary(payload) {
@@ -705,8 +804,17 @@
 
     function extractMacroSummary(thinkingStr) {
         if (!thinkingStr) return "Analyzing steps...";
-        let sentences = thinkingStr.match(/[^.!?]+[.!?]+/g);
-        if (!sentences || sentences.length === 0) return truncate(thinkingStr, 120).replace(/\*\*/g, '').replace(/\*/g, '');
+        let body = thinkingStr.replace(/\*\*/g, '').replace(/\*/g, '').trim();
+
+        // Reasoning frequently opens with a short bold heading on its own line.
+        // Stripping markdown glues it onto the next sentence ("Structuring the
+        // Overview Okay, I'm starting by..."), so drop it before parsing.
+        const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length > 1 && lines[0].length < 60 && !/[.!?:]$/.test(lines[0])) lines.shift();
+        body = lines.join(' ');
+
+        let sentences = body.match(/[^.!?]+[.!?]+/g);
+        if (!sentences || sentences.length === 0) return truncate(body, 120);
         let res = sentences[0].trim();
         if (sentences.length > 1 && res.length < 80) res += " " + sentences[1].trim();
         return truncate(res.replace(/\*\*/g, '').replace(/\*/g, ''), 200).replace(/\n/g, ' ');
@@ -743,7 +851,7 @@
             if (found.length) resultsFor[s.step_index] = found;
         }
         
-        let turns = []; let currentTurn = null;
+        let turns = []; let currentTurn = null; let requestNum = 0;
         let Y_USER = BASE_Y_USER / currentZoom;  
         let Y_AGENT = 0;    
         let Y_TOOL = BASE_Y_TOOL / currentZoom;   
@@ -758,17 +866,21 @@
                 if (currentTurn) turns.push(currentTurn);
                 currentX += 300;
                 let uId = 'user_' + index;
-                currentTurn = { minX: currentX, maxX: currentX, summary: "User Prompt: " + truncate(step.content, 50) };
+                const prompt = cleanUserText(step.content) || 'Initiating...';
+                // The request itself is the goal; the agent's restatement of it is
+                // secondary context, filled in by the first planner step below.
+                currentTurn = { minX: currentX, maxX: currentX, num: ++requestNum,
+                                request: prompt, intent: null, nodeId: uId };
                 
                 if (!nodes.get(uId)) {
-                    let summary = wrapText(truncate(step.content ? step.content : 'Initiating...', 50), 30); 
+                    let summary = wrapText(truncate(prompt, 50), 30); 
                     newNodes.push({ id: uId, label: '👤 USER REQUEST\n' + summary, shape: 'box', color: { background: '#FFF3E0', border: '#FFB74D' }, font: { color: '#E65100', align: 'left', multi: false }, x: currentX, y: Y_USER });
                     rawDataMap[uId] = step;
                     if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: uId, arrows: 'to', dashes: true, color: {color: '#F57C00'} });
                 }
                 previousPlannerId = uId;
                 // Register a jump target for the scrubber bar.
-                checkpoints.push({ id: uId, x: currentX, label: truncate(step.content ? step.content : 'Initiating...', 140) });
+                checkpoints.push({ id: uId, x: currentX, label: truncate(prompt, 140) });
             }
             else if (step.type === 'ERROR_MESSAGE') {
                 // Errors were previously dropped entirely. They must always be visible.
@@ -830,8 +942,10 @@
 
                 if (!collapse) {
                     currentX += 300;
-                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, summary: "Analyzing..." };
-                    if (step.thinking) currentTurn.summary = "Agent Goal: " + extractMacroSummary(step.thinking);
+                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, num: 0, request: 'Session start', intent: null, nodeId: null };
+                    // The opening thought is the agent's plan for this request. Later
+                    // thoughts are step-level detail, so don't let them overwrite it.
+                    if (step.thinking && !currentTurn.intent) currentTurn.intent = extractMacroSummary(step.thinking);
                     currentTurn.maxX = currentX;
 
                     if (!nodes.get(pId)) {
@@ -921,7 +1035,7 @@
         }
 
         renderScrubber();
-        updateScrubberViewport();
+        syncViewportUI();
         refreshIssueButton();
         // Newly added nodes must inherit the active filter, not appear fully lit.
         if (searchTerm.trim()) applySearch();
