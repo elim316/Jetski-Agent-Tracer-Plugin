@@ -7,16 +7,28 @@
     <style>
         body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; height: 100vh; overflow: hidden; background: var(--background, #f8f9fa); color: var(--foreground, #202124); }
         
-        #left { width: 68%; border-right: 1px solid var(--border, #dadce0); box-sizing: border-box; background: var(--background, #f8f9fa); display: flex; flex-direction: column; }
+        #left { width: 68%; min-width: 0; border-right: 1px solid var(--border, #dadce0); box-sizing: border-box; background: var(--background, #f8f9fa); display: flex; flex-direction: column; }
         #right { width: 32%; overflow-y: auto; padding: 20px; box-sizing: border-box; background: var(--card, #fff); }
         
-        .header { padding: 12px 16px; background: var(--card, #fff); border-bottom: 1px solid var(--border, #dadce0); display: flex; justify-content: space-between; align-items: center; z-index: 2; box-shadow: 0 2px 4px rgba(0,0,0,0.05); height: 56px; box-sizing: border-box; }
-        .header h1 { margin: 0; font-size: 15px; color: var(--foreground, #3c4043); font-weight: 600; }
-        .header .status { font-size: 12px; color: var(--primary, #1a73e8); display: flex; align-items: center; }
-        .status-dot { width: 8px; height: 8px; background-color: #34a853; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
+        /* Two rows: identity strip on top, wrapping toolbar underneath. The toolbar
+           holds a lot of controls, so it must be allowed to wrap rather than squash
+           its children into unreadable multi-line slivers. */
+        .header { padding: 8px 14px; background: var(--card, #fff); border-bottom: 1px solid var(--border, #dadce0); display: flex; flex-direction: column; gap: 8px; z-index: 2; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex-shrink: 0; box-sizing: border-box; }
+        .header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+        .header h1 { margin: 0; font-size: 14px; color: var(--foreground, #3c4043); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .header .status { font-size: 12px; color: var(--primary, #1a73e8); display: flex; align-items: center; white-space: nowrap; flex-shrink: 0; }
+        .status-dot { width: 8px; height: 8px; background-color: #34a853; border-radius: 50%; margin-right: 6px; flex-shrink: 0; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(52, 168, 83, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); } }
 
-        .canvas-wrapper { flex: 1; width: 100%; position: relative; overflow: hidden; cursor: grab; }
+        .toolbar { display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px; row-gap: 8px; }
+        .tb-group { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground, #5f6368); white-space: nowrap; }
+        .tb-group label { cursor: pointer; user-select: none; font-weight: 500; white-space: nowrap; }
+        .tb-group input[type=checkbox] { cursor: pointer; margin: 0; }
+        .tb-sep { width: 1px; height: 18px; background: var(--border, #dadce0); }
+        .tb-btn { background: var(--secondary, #e8f0fe); border: none; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-weight: 600; color: var(--primary, #1a73e8); white-space: nowrap; transition: opacity 0.2s; }
+        .tb-btn.ghost { background: var(--card, #fff); border: 1px solid var(--border, #dadce0); color: var(--foreground, #3c4043); font-weight: 500; }
+
+        .canvas-wrapper { flex: 1; min-height: 0; width: 100%; position: relative; overflow: hidden; cursor: grab; }
         .canvas-wrapper:active { cursor: grabbing; }
         
         .swimlanes-bg { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; z-index: 0; pointer-events: none; }
@@ -73,44 +85,51 @@
 
 <div id="left">
     <div class="header">
-        <h1>LangGraph-Style Agent Tracer</h1>
-        
-        <div style="display:flex; align-items:center; gap: 20px;">
-            <div style="display:flex; align-items:center; gap: 6px; font-size: 13px; color: var(--muted-foreground, #5f6368);">
-                <input type="checkbox" id="toggleSummaries" checked style="cursor: pointer;">
-                <label for="toggleSummaries" style="cursor: pointer; user-select: none; font-weight: 500;">Show Summaries</label>
-            </div>
-            
-            <div style="display:flex; align-items:center; gap: 6px; font-size: 13px; color: var(--muted-foreground, #5f6368); margin-left: 8px;">
-                <input type="checkbox" id="toggleAutoFollow" checked style="cursor: pointer;">
-                <label for="toggleAutoFollow" style="cursor: pointer; user-select: none; font-weight: 500;">Auto-Follow New Nodes</label>
+        <div class="header-row">
+            <h1>LangGraph-Style Agent Tracer</h1>
+            <div class="status" id="status-indicator"><div class="status-dot"></div> Live Workflow</div>
+        </div>
+
+        <div class="header-row toolbar">
+            <div class="tb-group">
+                <input type="checkbox" id="toggleSummaries" checked>
+                <label for="toggleSummaries" title="Show a one-line plain-English summary on each node">Summaries</label>
             </div>
 
-            <div style="display:flex; align-items:center; gap: 6px; font-size: 13px; color: var(--muted-foreground, #5f6368); margin-left: 8px;">
-                <input type="checkbox" id="toggleSimpleView" checked style="cursor: pointer;">
-                <label for="toggleSimpleView" style="cursor: pointer; user-select: none; font-weight: 500;" title="Hides router nodes that contain no reasoning, plus system/context noise">Simple View</label>
+            <div class="tb-group">
+                <input type="checkbox" id="toggleAutoFollow" checked>
+                <label for="toggleAutoFollow" title="Automatically pan to newly added nodes">Auto-Follow</label>
             </div>
 
-            <div style="display:flex; align-items:center; gap: 8px; border-left: 1px solid var(--border, #dadce0); padding-left: 20px;">
+            <div class="tb-group">
+                <input type="checkbox" id="toggleSimpleView" checked>
+                <label for="toggleSimpleView" title="Hides router nodes that contain no reasoning, plus system/context noise">Simple View</label>
+            </div>
+
+            <div class="tb-sep"></div>
+
+            <div class="tb-group">
                 <input type="text" id="searchBox" placeholder="Search trace…" title="Filter nodes by tool name, prompt or thought text">
                 <span id="searchCount"></span>
                 <button id="btnNextIssue" title="Jump to the next error or failed step" disabled>⚠ Issues</button>
             </div>
-            
-            <div style="display:flex; align-items:center; gap: 8px; border-left: 1px solid var(--border, #dadce0); padding-left: 20px;">
-                <button id="btnResetZoom" style="background:var(--card, #fff); border:1px solid var(--border, #dadce0); border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; color:var(--foreground, #3c4043); font-weight: 500; transition: opacity 0.2s;">Zoom 1x</button>
+
+            <div class="tb-sep"></div>
+
+            <div class="tb-group">
+                <button id="btnResetZoom" class="tb-btn ghost" title="Reset zoom to 1x">Zoom 1x</button>
                 <input type="range" id="zoomSlider" min="0.4" max="1.5" step="0.1" value="1.0" style="width: 80px; cursor: pointer;">
             </div>
-            
-            <div style="border-left: 1px solid var(--border, #dadce0); padding-left: 20px; display:flex; gap: 8px;">
-                <button id="btnJumpStart" style="background:var(--secondary, #e8f0fe); border:none; border-radius:4px; padding:6px 10px; font-size:12px; cursor:pointer; font-weight:600; color:var(--primary, #1a73e8); transition: opacity 0.2s;">Jump to Start</button>
-                <button id="btnJumpEnd" style="background:var(--secondary, #e8f0fe); border:none; border-radius:4px; padding:6px 10px; font-size:12px; cursor:pointer; font-weight:600; color:var(--primary, #1a73e8); transition: opacity 0.2s;">Jump to End</button>
+
+            <div class="tb-sep"></div>
+
+            <div class="tb-group">
+                <button id="btnJumpStart" class="tb-btn" title="Jump to the beginning of the trace">⏮ Start</button>
+                <button id="btnJumpEnd" class="tb-btn" title="Jump to the latest step">End ⏭</button>
             </div>
-            
-            <div class="status" id="status-indicator" style="margin-left: 12px;"><div class="status-dot"></div> Live Workflow</div>
         </div>
     </div>
-    
+
     <div class="canvas-wrapper" id="canvas-wrapper">
         <div class="swimlanes-bg">
             <div class="swimlane-row-bg"></div>
@@ -856,6 +875,11 @@
                                 color = { background: '#FEF7E0', border: '#F9AB00' };
                             }
 
+                            // Surface slow calls on the node itself so bottlenecks
+                            // are visible without opening every step.
+                            const tTiming = parseTiming(resultText, step, resultStep);
+                            if (tTiming && tTiming.ms >= SLOW_MS) title += '  🐢 ' + formatDuration(tTiming.ms);
+
                             newNodes.push({ id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color,
                                 font: { color: failed ? '#A50E0E' : (isSubagent ? '#1A237E' : '#006064'), align: 'left', multi: false },
                                 shapeProperties: running ? { borderDashes: [5, 4] } : { borderDashes: false },
@@ -928,6 +952,164 @@
             console.error('Failed to load full step:', e);
         }
     };
+
+    // ---------------------------------------------------------------------
+    // Timing
+    // ---------------------------------------------------------------------
+    // The runtime prefixes most tool results with `Created At:` / `Completed At:`
+    // ISO timestamps. That is a far more precise source for how long a tool
+    // actually took than diffing the surrounding step timestamps, so prefer it
+    // and only fall back to step metadata when the preamble is absent.
+    function parseTiming(rawText, step, resultStep) {
+        let start = null, end = null;
+        if (rawText) {
+            const c = rawText.match(/^\s*Created At:\s*(\S+)/m);
+            const d = rawText.match(/^\s*Completed At:\s*(\S+)/m);
+            if (c) start = Date.parse(c[1]);
+            if (d) end = Date.parse(d[1]);
+        }
+        if ((!start || !end) && step && resultStep && step.created_at && resultStep.created_at) {
+            start = Date.parse(step.created_at);
+            end = Date.parse(resultStep.created_at);
+        }
+        if (!start || !end || isNaN(start) || isNaN(end) || end < start) return null;
+        return { start: start, end: end, ms: end - start };
+    }
+
+    function formatDuration(ms) {
+        if (ms < 1000) return ms + 'ms';
+        if (ms < 60000) return (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + 's';
+        const mins = Math.floor(ms / 60000);
+        return mins + 'm ' + Math.round((ms % 60000) / 1000) + 's';
+    }
+
+    // Anything past this is worth calling out visually as a bottleneck.
+    const SLOW_MS = 10000;
+
+    // The `Created At:` / `Completed At:` lines are plumbing, not content.
+    // Strip them so the displayed body starts with the actual output.
+    function stripTimingPreamble(text) {
+        return (text || '').replace(/^\s*(Created|Completed) At:.*\n?/gm, '');
+    }
+
+    // ---------------------------------------------------------------------
+    // Result summarisation
+    // ---------------------------------------------------------------------
+    // Raw tool output is long and noisy. Distil it into one plain-English
+    // sentence plus a handful of stat chips, so the trace stays readable for
+    // people who are not going to read a 4000-character dump.
+    function summarizeResult(rawText, toolName, failed) {
+        const text = stripTimingPreamble(rawText || '');
+        if (!text.trim()) return null;
+
+        const stats = [];
+        const grab = (re) => { const m = text.match(re); return m ? m[1] : null; };
+        // Captured paths usually sit inside a sentence, so trailing punctuation
+        // comes along for the ride and has to be trimmed off.
+        const base = (p) => p ? p.replace(/[`'"]/g, '').replace(/^file:\/\//, '')
+                                 .replace(/[.,;:)]+$/, '').split('/').filter(Boolean).pop() : null;
+        const firstLine = text.trim().split('\n')[0].trim();
+        let headline = null;
+
+        if (failed) {
+            // For failures the error text itself is the most useful summary.
+            const errLine = text.split('\n').map(l => l.trim())
+                                .find(l => /error|failed|denied|not found|cannot|unable/i.test(l)) || firstLine;
+            headline = truncate(errLine, 200);
+        } else {
+            switch (toolName) {
+                case 'view_file': {
+                    const path = grab(/File Path:\s*(.+)/);
+                    const shown = text.match(/Showing lines (\d+) to (\d+)/);
+                    const total = grab(/Total Lines:\s*(\d+)/);
+                    const bytes = grab(/Total Bytes:\s*(\d+)/);
+                    headline = 'Read ' + (shown ? 'lines ' + shown[1] + '–' + shown[2] + ' of ' : '') + (base(path) || 'a file') + '.';
+                    if (total) stats.push(total + ' lines total');
+                    if (bytes) stats.push(Math.round(bytes / 102.4) / 10 + ' KB');
+                    break;
+                }
+                case 'write_to_file': {
+                    const path = grab(/Created file\s+(\S+)/);
+                    headline = 'Created ' + (base(path) || 'a new file') + '.';
+                    break;
+                }
+                case 'replace_file_content': {
+                    const path = grab(/tool to:\s*(\S+)/);
+                    const added = (text.match(/^\+(?!\+)/gm) || []).length;
+                    const removed = (text.match(/^-(?!-)/gm) || []).length;
+                    headline = 'Edited ' + (base(path) || 'a file') + '.';
+                    if (added) stats.push(added + ' lines added');
+                    if (removed) stats.push(removed + ' lines removed');
+                    break;
+                }
+                case 'run_command': {
+                    const task = grab(/background task with task id:\s*(\S+)/);
+                    const code = grab(/command exited with code\s*(-?\d+)/i);
+                    if (task) {
+                        headline = 'Started a background task (' + task + ').';
+                    } else if (code !== null) {
+                        headline = code === '0' ? 'Command completed successfully.'
+                                                : 'Command finished with exit code ' + code + '.';
+                    } else {
+                        headline = 'Ran a shell command.';
+                    }
+                    const outLines = text.split('\n').length;
+                    if (outLines > 3) stats.push(outLines + ' lines of output');
+                    break;
+                }
+                case 'code_search': {
+                    const n = grab(/([\d,]+)\s+files? found/);
+                    headline = n ? 'Found ' + n + ' matching files in the codebase.' : 'Searched the codebase.';
+                    break;
+                }
+                case 'grep_search': {
+                    const n = (text.match(/"LineNumber"/g) || []).length;
+                    headline = n ? 'Found ' + n + ' matching line' + (n === 1 ? '' : 's') + '.' : 'No matches found.';
+                    break;
+                }
+                case 'find_by_name': {
+                    // Newer output states the count outright; older output just lists paths.
+                    let n = grab(/Found\s+(\d+)\s+results?/i);
+                    if (!n) {
+                        const listed = text.split('\n').filter(l => /^\s*(file|dir|directory)\b|\//.test(l)).length;
+                        n = listed ? String(listed) : null;
+                    }
+                    headline = n ? 'Found ' + n + ' matching file' + (n === '1' ? '' : 's') + '.' : 'No matching files found.';
+                    break;
+                }
+                case 'list_dir': {
+                    headline = grab(/(Summary:\s*This directory.*)/) || 'Listed a directory.';
+                    headline = headline.replace(/^Summary:\s*/, '');
+                    break;
+                }
+                case 'generate_image': {
+                    const p = grab(/saved to:?\s*(\S+)/i) || grab(/(\S+\.(?:png|jpg|jpeg|webp))/i);
+                    headline = p ? 'Generated image ' + base(p) + '.' : 'Generated an image.';
+                    break;
+                }
+                case 'manage_task': {
+                    const cancelled = grab(/Task\s+"([^"]+)"\s+cancelled/i);
+                    const status = grab(/^Status:\s*(\S+)/m);
+                    if (cancelled) headline = 'Cancelled background task ' + cancelled + '.';
+                    else if (status) headline = 'Background task status: ' + status + '.';
+                    else headline = truncate(firstLine, 200);
+                    break;
+                }
+                default:
+                    headline = truncate(firstLine, 200);
+            }
+        }
+
+        if (!headline || !headline.trim()) headline = truncate(firstLine, 200);
+
+        // Only show a raw size when no more meaningful size stat was produced.
+        const chars = text.trim().length;
+        if (chars > 600 && !stats.some(s => /KB|characters/.test(s))) {
+            stats.push(Math.round(chars / 100) / 10 + 'k characters');
+        }
+
+        return { headline: headline, stats: stats, body: text.trim() };
+    }
 
     function renderInspector(data) {
         if (!data) return;
@@ -1065,6 +1247,7 @@
             }
 
             // The tool's actual output, paired from the following GENERIC step.
+            const timing = parseTiming(data.result, data.step, data.resultStep);
             if (data.running) {
                 text += '<div class="inspector-section"><div class="inspector-label">Result</div>' +
                         '<div style="background:#FEF7E0; border:1px solid #F9AB00; border-radius:6px; padding:12px; font-size:13px; color:#996C00;">' +
@@ -1072,10 +1255,36 @@
             } else if (data.result) {
                 const accent = data.failed ? '#D93025' : '#34A853';
                 const bg = data.failed ? '#FCE8E6' : 'var(--secondary,#f8f9fa)';
+                const summary = summarizeResult(data.result, tool.name, data.failed);
+
+                // Duration is shown as a chip next to the section label, turning
+                // red once a call crosses the "this is a bottleneck" threshold.
+                let durChip = '';
+                if (timing) {
+                    const slow = timing.ms >= SLOW_MS;
+                    durChip = '<span style="margin-left:8px; font-size:11px; font-weight:600; letter-spacing:0; text-transform:none; ' +
+                              'padding:2px 7px; border-radius:10px; ' +
+                              (slow ? 'background:#FCE8E6; color:#C5221F;' : 'background:var(--secondary,#e8f0fe); color:var(--muted-foreground,#5f6368);') +
+                              '" title="Time taken by this tool call">' + (slow ? '🐢 ' : '⏱ ') + formatDuration(timing.ms) + '</span>';
+                }
+
                 text += '<div class="inspector-section"><div class="inspector-label">' +
-                        (data.failed ? 'Result — failed' : 'Result') + '</div>' +
-                        '<div style="background:' + bg + '; border:1px solid var(--border,#eee); border-left:4px solid ' + accent + '; border-radius:6px; padding:12px; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:320px; overflow-y:auto; font-family:ui-monospace, monospace; color:var(--foreground,#202124);">' +
-                        escapeHtmlRaw(truncate(data.result, 4000)) + '</div>';
+                        (data.failed ? 'Result — failed' : 'Result') + durChip + '</div>';
+
+                if (summary) {
+                    const chips = summary.stats.map(s =>
+                        '<span style="display:inline-block; background:rgba(0,0,0,0.05); border-radius:10px; padding:2px 8px; font-size:11px; color:var(--muted-foreground,#5f6368); margin:6px 6px 0 0;">' +
+                        escapeHtmlRaw(s) + '</span>').join('');
+                    text += '<div style="background:' + bg + '; border:1px solid var(--border,#eee); border-left:4px solid ' + accent + '; border-radius:6px; padding:14px;">' +
+                            '<div style="font-size:14px; font-weight:600; color:var(--foreground,#202124); line-height:1.45;">' +
+                            escapeHtmlRaw(summary.headline) + '</div>' + chips + '</div>';
+
+                    // Full output stays one click away for anyone who needs it.
+                    text += '<details style="margin-top:10px;">' +
+                            '<summary style="cursor:pointer; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted-foreground,#80868b); outline:none;">Show full output</summary>' +
+                            '<div style="margin-top:8px; background:' + bg + '; border:1px solid var(--border,#eee); border-radius:6px; padding:12px; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:320px; overflow-y:auto; font-family:ui-monospace, monospace; color:var(--foreground,#202124);">' +
+                            escapeHtmlRaw(truncate(summary.body, 4000)) + '</div></details>';
+                }
                 text += truncationNotice(data.resultStep) + '</div>';
             }
         }
