@@ -504,6 +504,40 @@
         } else if (data.type === 'PLANNER_RESPONSE') {
             titleColor = '#8E24AA'; icon = '🧠 ';
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' MAIN AGENT (ROUTER)</div>';
+
+            const stripMd = (s) => s.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
+            const firstSentences = (s, n) => stripMd(s).split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, n).join(' ');
+
+            // Always lead with a plain-English gist so non-technical readers get value.
+            let gist = '';
+            if (data.thinking) gist = firstSentences(data.thinking, 2);
+            else if (data.content) gist = firstSentences(data.content, 2);
+
+            let actionList = '';
+            if (data.tool_calls && data.tool_calls.length) {
+                data.tool_calls.forEach(function(t) {
+                    const a = t.arguments || t.args || {};
+                    const desc = (a.toolAction || a.toolSummary || t.name || '').toString().replace(/^"+|"+$/g, '');
+                    actionList += '<li style="margin-bottom:4px;">' + escapeHtmlRaw(desc) +
+                                  ' <span style="color:var(--muted-foreground,#80868b); font-size:12px;">(' + escapeHtmlRaw(t.name) + ')</span></li>';
+                });
+            }
+
+            if (!gist && actionList) {
+                const n = data.tool_calls.length;
+                gist = 'The agent skipped visible deliberation and went straight to ' + n + ' action' + (n > 1 ? 's' : '') + '.';
+            }
+            if (!gist) gist = 'No reasoning or output text was recorded for this step.';
+
+            text += '<div class="inspector-section"><div class="inspector-label">In a nutshell</div>' +
+                    '<div style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid '+titleColor+'; border-radius:6px; padding:14px; font-size:14px; line-height:1.5; color:var(--foreground,#202124);">' +
+                    escapeHtmlRaw(gist) + '</div></div>';
+
+            if (actionList) {
+                text += '<div class="inspector-section"><div class="inspector-label">What it decided to do</div>' +
+                        '<ul style="margin:0; padding-left:20px; font-size:13px; color:var(--foreground,#202124);">' + actionList + '</ul></div>';
+            }
+
             if (data.thinking) {
                 text += '<div class="inspector-section"><div class="inspector-label">Internal Thoughts & Reasoning</div>' +
                      '<div class="markdown-body" style="background:var(--secondary, #f8f9fa); padding: 12px; border-radius: 6px; border: 1px solid var(--border, #eee);max-height: 500px; overflow-y: auto;">' + renderMarkdown(data.thinking) + '</div></div>';
