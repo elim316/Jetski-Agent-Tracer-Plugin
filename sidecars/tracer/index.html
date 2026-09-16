@@ -35,6 +35,17 @@
         .inspector-label { font-size: 11px; font-weight: 600; color: var(--muted-foreground, #5f6368); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
         pre { background: var(--secondary, #f1f3f4); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 11px; font-family: ui-monospace, monospace; margin: 0; white-space: pre-wrap; word-wrap: break-word; color: var(--foreground, #202124); border: 1px solid var(--border, #e8eaed); }
         .empty-state { color: var(--muted-foreground, #80868b); text-align: center; margin-top: 60px; font-size: 14px; padding: 20px; }
+
+        /* Timeline scrubber: jump between user requests */
+        .scrubber { height: 46px; flex-shrink: 0; background: var(--card, #fff); border-top: 1px solid var(--border, #dadce0); display: flex; align-items: center; padding: 0 20px; gap: 12px; box-sizing: border-box; }
+        .scrubber-caption { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted-foreground, #80868b); white-space: nowrap; }
+        .scrubber-track { position: relative; flex: 1; height: 6px; background: var(--secondary, #e8eaed); border-radius: 3px; cursor: pointer; }
+        .scrubber-view { position: absolute; top: 0; height: 100%; background: rgba(26,115,232,0.28); border-radius: 3px; pointer-events: none; transition: left 0.1s linear, width 0.1s linear; }
+        .checkpoint { position: absolute; top: 50%; width: 13px; height: 13px; margin-left: -6.5px; margin-top: -6.5px; background: #FFB74D; border: 2px solid var(--card, #fff); border-radius: 50%; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.15s ease, background 0.15s ease; z-index: 2; }
+        .checkpoint:hover { transform: scale(1.45); background: #F57C00; }
+        .checkpoint.active { background: #F57C00; box-shadow: 0 0 0 4px rgba(245,124,0,0.2); }
+        .checkpoint-tip { position: absolute; bottom: 26px; transform: translateX(-50%); background: #202124; color: #fff; font-size: 11px; line-height: 1.4; padding: 7px 10px; border-radius: 6px; max-width: 280px; white-space: normal; pointer-events: none; opacity: 0; transition: opacity 0.15s ease; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+        .checkpoint-tip.show { opacity: 1; }
     </style>
     <!-- Bridge script to interact directly with Jetski runtime! -->
     <script src="/preload.js"></script>
@@ -95,7 +106,16 @@
             <div class="swimlane-row-label"><div class="swimlane-header" onclick="window.showExplanation('tools')" title="Click for info">🔧 Tools & Functions</div></div>
         </div>
     </div>
+
+    <div class="scrubber">
+        <div class="scrubber-caption">Requests</div>
+        <div class="scrubber-track" id="scrubberTrack">
+            <div class="scrubber-view" id="scrubberView"></div>
+        </div>
+        <div class="scrubber-caption" id="scrubberCount">0</div>
+    </div>
 </div>
+<div class="checkpoint-tip" id="checkpointTip"></div>
 
 <div id="right">
     <div id="inspector">
@@ -126,6 +146,95 @@
     
     let activeConvId = getActiveConversationId();
     let emptyStateRendered = false;
+
+    // --- Timeline scrubber -------------------------------------------------
+    // Checkpoints mark every user request so they can be jumped to directly.
+    let checkpoints = [];
+    const scrubberTrack = document.getElementById('scrubberTrack');
+    const scrubberView = document.getElementById('scrubberView');
+    const scrubberCount = document.getElementById('scrubberCount');
+    const checkpointTip = document.getElementById('checkpointTip');
+
+    function graphBounds() {
+        let minX = Infinity, maxX = -Infinity;
+        nodes.forEach(n => {
+            if (typeof n.x !== 'number') return;
+            if (n.x < minX) minX = n.x;
+            if (n.x > maxX) maxX = n.x;
+        });
+        if (minX === Infinity) return null;
+        // Pad so the first and last nodes aren't flush against the track edges.
+        return { minX: minX - 200, maxX: maxX + 200 };
+    }
+
+    function jumpToX(x) {
+        if (!network) return;
+        autoFollow = false;
+        if (toggleAutoFollow) toggleAutoFollow.checked = false;
+        network.moveTo({ position: { x: x, y: 0 }, scale: currentZoom, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+    }
+
+    function renderScrubber() {
+        if (!scrubberTrack) return;
+        scrubberCount.textContent = checkpoints.length ? checkpoints.length + (checkpoints.length === 1 ? ' request' : ' requests') : '0';
+
+        const b = graphBounds();
+        scrubberTrack.querySelectorAll('.checkpoint').forEach(el => el.remove());
+        if (!b || b.maxX === b.minX) return;
+        const span = b.maxX - b.minX;
+
+        checkpoints.forEach((cp, i) => {
+            const pct = ((cp.x - b.minX) / span) * 100;
+            const dot = document.createElement('div');
+            dot.className = 'checkpoint';
+            dot.style.left = pct + '%';
+            dot.dataset.index = i;
+            dot.addEventListener('click', (e) => {
+                e.stopPropagation();
+                jumpToX(cp.x);
+                if (rawDataMap[cp.id]) renderInspector(rawDataMap[cp.id]);
+                scrubberTrack.querySelectorAll('.checkpoint').forEach(d => d.classList.remove('active'));
+                dot.classList.add('active');
+            });
+            dot.addEventListener('mouseenter', () => {
+                const r = dot.getBoundingClientRect();
+                checkpointTip.textContent = '#' + (i + 1) + ' · ' + cp.label;
+                checkpointTip.style.left = (r.left + r.width / 2) + 'px';
+                checkpointTip.style.bottom = (window.innerHeight - r.top + 10) + 'px';
+                checkpointTip.classList.add('show');
+            });
+            dot.addEventListener('mouseleave', () => checkpointTip.classList.remove('show'));
+            scrubberTrack.appendChild(dot);
+        });
+    }
+
+    function updateScrubberViewport() {
+        if (!network || !scrubberView) return;
+        const b = graphBounds();
+        if (!b || b.maxX === b.minX) return;
+        const span = b.maxX - b.minX;
+        const scale = network.getScale();
+        const canvasW = document.getElementById('graph-container').clientWidth;
+        const visibleSpan = canvasW / scale;
+        const center = network.getViewPosition().x;
+        let left = ((center - visibleSpan / 2 - b.minX) / span) * 100;
+        let width = (visibleSpan / span) * 100;
+        left = Math.max(0, Math.min(100, left));
+        width = Math.max(3, Math.min(100 - left, width));
+        scrubberView.style.left = left + '%';
+        scrubberView.style.width = width + '%';
+    }
+
+    if (scrubberTrack) {
+        // Clicking anywhere on the track seeks proportionally along the timeline.
+        scrubberTrack.addEventListener('click', (e) => {
+            const b = graphBounds();
+            if (!b) return;
+            const r = scrubberTrack.getBoundingClientRect();
+            const pct = (e.clientX - r.left) / r.width;
+            jumpToX(b.minX + pct * (b.maxX - b.minX));
+        });
+    }
     
     let showSummaries = true;
     const toggleSummaries = document.getElementById('toggleSummaries');
@@ -374,6 +483,12 @@
                 if (clickedData) renderInspector(clickedData);
             }
         });
+
+        // Keep the scrubber's blue viewport window in sync with the camera.
+        network.on('dragging', updateScrubberViewport);
+        network.on('dragEnd', updateScrubberViewport);
+        network.on('zoom', updateScrubberViewport);
+        network.on('animationFinished', updateScrubberViewport);
     }
 
     function truncate(str, n) {
@@ -412,6 +527,7 @@
     function updateGraph(data) {
         let newNodes = []; let newEdges = [];
         let previousPlannerId = null; let currentX = -200; 
+        checkpoints = [];
         
         let turns = []; let currentTurn = null;
         let Y_USER = BASE_Y_USER / currentZoom;  
@@ -437,6 +553,8 @@
                     if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: uId, arrows: 'to', dashes: true, color: {color: '#F57C00'} });
                 }
                 previousPlannerId = uId;
+                // Register a jump target for the scrubber bar.
+                checkpoints.push({ id: uId, x: currentX, label: truncate(step.content ? step.content : 'Initiating...', 140) });
             } 
             else if (step.type === 'PLANNER_RESPONSE') {
                 // A router node with no thinking AND no output is pure overhead: the agent
@@ -515,6 +633,9 @@
                 animation: { duration: 600, easingFunction: 'easeInOutQuad' }
             });
         }
+
+        renderScrubber();
+        updateScrubberViewport();
     }
 
     function renderInspector(data) {
