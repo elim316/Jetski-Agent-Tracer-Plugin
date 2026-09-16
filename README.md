@@ -8,10 +8,25 @@ A dynamic, LangGraph-style trajectory visualizer for Jetski. This UI plugin rend
 - **🔧 Tools & Functions:** Tool executions and subagent invocations.
 
 ## ✨ Features
-- **Real-Time Auto-Follow:** Automatically pans the timeline view to track the newest nodes natively as the agent executes them.
-- **Interactive Node Inspector:** Click any timeline node to view a beautifully formatted, Markdown-rendered output of the agent's internal thoughts, actions, and raw parameter payloads.
-- **Zoom & Panning Controls:** Fully horizontally scrollable with strict Y-axis locking and adjustable zoom slider.
-- **Macro Summaries:** Contextual grouping boxes that dynamically calculate bounds to generate high-level summaries of large blocks of related work.
+
+**Reading the trace**
+- **Complete coverage:** Renders every step type in the transcript — user prompts, agent reasoning, tool calls, errors, system notices and context checkpoints. Nothing is silently dropped.
+- **Plain-English inspector:** Click any node for a human-readable summary of what happened, with parameters as a labelled list and the raw JSON tucked behind an "Advanced" toggle.
+- **Tool results inline:** Each tool node shows not just what was called, but what came back.
+- **Errors surfaced:** Failed calls turn red, in-flight calls show amber and dashed, and an **⚠ Issues** button cycles straight through every failure in the trace.
+- **Truncation honesty:** Content abbreviated in the compact log is flagged, with a one-click "Load full version" that pulls from `transcript_full.jsonl`.
+
+**Navigating**
+- **Timeline scrubber:** A checkpoint pin per user request — click to jump, hover for the prompt text. A blue band shows your current position in the overall trace.
+- **Search:** Filter by tool name, prompt or thought text; non-matches dim, and Enter steps through hits.
+- **Real-Time Auto-Follow:** Pans to track the newest nodes as the agent works, and backs off automatically when you scroll into history.
+- **Jump to Start / End** plus zoom controls with strict Y-axis locking.
+
+**Views**
+- **Simple View:** Hides empty router nodes and system/context noise for a clean narrative — ideal for demos. Toggle off to inspect every model round-trip.
+- **Macro Summaries:** Contextual grouping boxes summarizing large blocks of related work.
+- **Preferences persist** across reloads, and colours follow the host's light or dark theme.
+
 
 ## 🚀 Installation
 
