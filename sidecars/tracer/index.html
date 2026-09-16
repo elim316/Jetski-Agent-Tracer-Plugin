@@ -34,14 +34,18 @@
            the agent is working on. A pinned strip always answers that. */
         .goalbar { display: flex; align-items: flex-start; gap: 12px; padding: 9px 14px; background: var(--card, #fff); border-bottom: 1px solid var(--border, #dadce0); box-shadow: inset 3px 0 0 #4285F4; flex-shrink: 0; box-sizing: border-box; }
         .goalbar.hidden { display: none; }
-        .goalbar-pill { flex-shrink: 0; margin-top: 1px; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: #1967D2; background: rgba(66,133,244,0.12); border-radius: 12px; padding: 4px 9px; white-space: nowrap; }
+
+        .goalbar-nav { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+        .goalbar-step { width: 22px; height: 24px; padding: 0; line-height: 1; font-size: 14px; font-weight: 700; cursor: pointer; color: #1967D2; background: rgba(66,133,244,0.12); border: none; border-radius: 4px; transition: background 0.15s ease; }
+        .goalbar-step:hover:not(:disabled) { background: rgba(66,133,244,0.24); }
+        .goalbar-step:disabled { opacity: 0.35; cursor: default; }
+        #goalBarSelect { max-width: 190px; height: 24px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; color: #1967D2; background: rgba(66,133,244,0.12); border: none; border-radius: 12px; padding: 0 8px; cursor: pointer; outline: none; }
+
         .goalbar-body { flex: 1; min-width: 0; cursor: pointer; }
-        .goalbar-request { font-size: 13px; font-weight: 600; color: var(--foreground, #202124); line-height: 1.4; }
-        .goalbar-intent { font-size: 12px; color: var(--muted-foreground, #5f6368); line-height: 1.4; margin-top: 2px; }
-        /* Collapsed by default to one line each; clicking the body reveals the rest. */
-        .goalbar:not(.expanded) .goalbar-request,
-        .goalbar:not(.expanded) .goalbar-intent { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-        .goalbar-body:hover .goalbar-request { color: var(--primary, #1a73e8); }
+        .goalbar-main { font-size: 13px; font-weight: 600; color: var(--foreground, #202124); line-height: 1.4; }
+        /* Collapsed to two lines; clicking the body reveals the rest. */
+        .goalbar:not(.expanded) .goalbar-main { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .goalbar-body:hover .goalbar-main { color: var(--primary, #1a73e8); }
         #goalBarJump { flex-shrink: 0; }
 
         .canvas-wrapper { flex: 1; min-height: 0; width: 100%; position: relative; overflow: hidden; cursor: grab; }
@@ -148,10 +152,13 @@
 
     <!-- Always-visible context strip telling you which request the camera is inside. -->
     <div class="goalbar hidden" id="goalBar">
-        <div class="goalbar-pill" id="goalBarPill">REQUEST</div>
+        <div class="goalbar-nav">
+            <button class="goalbar-step" id="goalBarPrev" title="Previous request">‹</button>
+            <select id="goalBarSelect" title="Jump to a specific request"></select>
+            <button class="goalbar-step" id="goalBarNext" title="Next request">›</button>
+        </div>
         <div class="goalbar-body" id="goalBarBody" title="Click to expand the full text">
-            <div class="goalbar-request" id="goalBarRequest"></div>
-            <div class="goalbar-intent" id="goalBarIntent"></div>
+            <div class="goalbar-main" id="goalBarMain"></div>
         </div>
         <button class="tb-btn" id="goalBarJump" title="Scroll back to the start of this request">⤴ Go to request</button>
     </div>
@@ -319,10 +326,18 @@
     // worked on is always legible no matter how far along the trace you've panned.
     let activeGoalTurn = null;
     let activeGoalKey = null;
+    let goalOptionsKey = null;
     const goalBar = document.getElementById('goalBar');
-    const goalBarPill = document.getElementById('goalBarPill');
-    const goalBarRequest = document.getElementById('goalBarRequest');
-    const goalBarIntent = document.getElementById('goalBarIntent');
+    const goalBarMain = document.getElementById('goalBarMain');
+    const goalBarSelect = document.getElementById('goalBarSelect');
+    const goalBarPrev = document.getElementById('goalBarPrev');
+    const goalBarNext = document.getElementById('goalBarNext');
+
+    // The headline. The agent's restated intent says what is actually being done;
+    // the raw prompt is already identified by the request picker.
+    function goalHeadline(turn) {
+        return turn.intent || turn.request || 'Analyzing…';
+    }
 
     function turnAtX(x) {
         const turns = window.graphTurns || [];
@@ -339,6 +354,49 @@
         return best;
     }
 
+    // Rebuilds the picker's options. Guarded by a key because updateGraph reruns
+    // on every poll and replacing the option list would close an open dropdown.
+    function renderGoalOptions() {
+        if (!goalBarSelect) return;
+        const turns = window.graphTurns || [];
+        const key = turns.map(t => t.num + ':' + goalHeadline(t).length).join(',');
+        if (key === goalOptionsKey) return;
+        goalOptionsKey = key;
+
+        goalBarSelect.innerHTML = '';
+        turns.forEach((t, i) => {
+            const opt = document.createElement('option');
+            opt.value = String(i);
+            const label = t.num > 0 ? 'Request ' + t.num : 'Session start';
+            opt.textContent = label + ' — ' + truncate(goalHeadline(t), 70);
+            goalBarSelect.appendChild(opt);
+        });
+    }
+
+    function goToTurn(turn) {
+        if (!turn) return;
+        jumpToX(turn.minX);
+        // Paint immediately rather than waiting for the pan animation to land.
+        activeGoalTurn = turn;
+        paintGoalBar(turn);
+        if (turn.nodeId && rawDataMap[turn.nodeId]) renderInspector(rawDataMap[turn.nodeId]);
+    }
+
+    function paintGoalBar(turn) {
+        const turns = window.graphTurns || [];
+        // Recorded here so a later camera-driven update recognises this turn as
+        // already shown and doesn't repaint (which would collapse an expansion).
+        activeGoalKey = turn.num + '|' + goalHeadline(turn);
+        goalBar.classList.remove('hidden');
+        goalBar.classList.remove('expanded');
+        goalBarMain.textContent = goalHeadline(turn);
+
+        const idx = turns.indexOf(turn);
+        if (idx >= 0) goalBarSelect.value = String(idx);
+        goalBarPrev.disabled = idx <= 0;
+        goalBarNext.disabled = idx < 0 || idx >= turns.length - 1;
+    }
+
     function updateGoalBar() {
         if (!goalBar) return;
         const turns = window.graphTurns || [];
@@ -352,20 +410,9 @@
         // turn array on every poll, so an object-identity check would repaint
         // constantly and collapse the bar while the user is reading it.
         activeGoalTurn = turn;
-        const key = turn.num + '|' + (turn.request || '');
-        if (key === activeGoalKey) return;
-        activeGoalKey = key;
+        if (turn.num + '|' + goalHeadline(turn) === activeGoalKey) return;
 
-        goalBar.classList.remove('hidden');
-        goalBar.classList.remove('expanded');
-
-        const total = turns.filter(t => t.num > 0).length;
-        goalBarPill.textContent = turn.num > 0
-            ? 'REQUEST ' + turn.num + (total > 1 ? ' / ' + total : '')
-            : 'SESSION START';
-        goalBarRequest.textContent = turn.request || '—';
-        goalBarIntent.textContent = turn.intent ? '↳ ' + turn.intent : '';
-        goalBarIntent.style.display = turn.intent ? '' : 'none';
+        paintGoalBar(turn);
     }
 
     // Both overlays read the camera, so keep them updated together.
@@ -381,12 +428,20 @@
         });
         document.getElementById('goalBarJump').addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!activeGoalTurn) return;
-            jumpToX(activeGoalTurn.minX);
-            if (activeGoalTurn.nodeId && rawDataMap[activeGoalTurn.nodeId]) {
-                renderInspector(rawDataMap[activeGoalTurn.nodeId]);
-            }
+            goToTurn(activeGoalTurn);
         });
+        goalBarSelect.addEventListener('change', function() {
+            goToTurn((window.graphTurns || [])[parseInt(this.value, 10)]);
+        });
+        goalBarPrev.addEventListener('click', () => stepRequest(-1));
+        goalBarNext.addEventListener('click', () => stepRequest(1));
+    }
+
+    function stepRequest(delta) {
+        const turns = window.graphTurns || [];
+        const idx = turns.indexOf(activeGoalTurn);
+        if (idx < 0) return;
+        goToTurn(turns[idx + delta]);
     }
 
     if (scrubberTrack) {
@@ -1035,6 +1090,7 @@
         }
 
         renderScrubber();
+        renderGoalOptions();
         syncViewportUI();
         refreshIssueButton();
         // Newly added nodes must inherit the active filter, not appear fully lit.
