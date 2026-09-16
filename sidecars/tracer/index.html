@@ -42,8 +42,10 @@
         .scrubber-track { position: relative; flex: 1; height: 6px; background: var(--secondary, #e8eaed); border-radius: 3px; cursor: pointer; }
         .scrubber-view { position: absolute; top: 0; height: 100%; background: rgba(26,115,232,0.28); border-radius: 3px; pointer-events: none; transition: left 0.1s linear, width 0.1s linear; }
         .checkpoint { position: absolute; top: 50%; width: 13px; height: 13px; margin-left: -6.5px; margin-top: -6.5px; background: #FFB74D; border: 2px solid var(--card, #fff); border-radius: 50%; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.15s ease, background 0.15s ease; z-index: 2; }
-        .checkpoint:hover { transform: scale(1.45); background: #F57C00; }
-        .checkpoint.active { background: #F57C00; box-shadow: 0 0 0 4px rgba(245,124,0,0.2); }
+        /* Invisible padding so tightly packed pins stay comfortably clickable. */
+        .checkpoint::before { content: ''; position: absolute; top: -9px; left: -7px; right: -7px; bottom: -9px; border-radius: 50%; }
+        .checkpoint:hover { transform: scale(1.45); background: #F57C00; z-index: 4; }
+        .checkpoint.active { background: #F57C00; box-shadow: 0 0 0 4px rgba(245,124,0,0.2); z-index: 3; }
         .checkpoint-tip { position: absolute; bottom: 26px; transform: translateX(-50%); background: #202124; color: #fff; font-size: 11px; line-height: 1.4; padding: 7px 10px; border-radius: 6px; max-width: 280px; white-space: normal; pointer-events: none; opacity: 0; transition: opacity 0.15s ease; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
         .checkpoint-tip.show { opacity: 1; }
     </style>
@@ -183,11 +185,32 @@
         if (!b || b.maxX === b.minX) return;
         const span = b.maxX - b.minX;
 
+        // Requests sit wherever their node landed on the canvas, so short turns can
+        // bunch pins into an unclickable blob. Resolve collisions by nudging pins
+        // apart to a minimum pixel gap, keeping their left-to-right order intact.
+        const trackW = scrubberTrack.getBoundingClientRect().width;
+        if (!trackW) return;
+        const n = checkpoints.length;
+        const MIN_GAP = Math.min(18, n > 1 ? trackW / (n + 1) : 18);
+
+        let pos = checkpoints.map(cp => ((cp.x - b.minX) / span) * trackW);
+        // Forward pass: push each pin right until it clears its left neighbour.
+        for (let i = 1; i < n; i++) {
+            if (pos[i] - pos[i - 1] < MIN_GAP) pos[i] = pos[i - 1] + MIN_GAP;
+        }
+        // Backward pass: if that overflowed the track, pull the tail back in.
+        if (n && pos[n - 1] > trackW) {
+            pos[n - 1] = trackW;
+            for (let i = n - 2; i >= 0; i--) {
+                if (pos[i + 1] - pos[i] < MIN_GAP) pos[i] = pos[i + 1] - MIN_GAP;
+            }
+            for (let i = 0; i < n; i++) pos[i] = Math.max(0, pos[i]);
+        }
+
         checkpoints.forEach((cp, i) => {
-            const pct = ((cp.x - b.minX) / span) * 100;
             const dot = document.createElement('div');
             dot.className = 'checkpoint';
-            dot.style.left = pct + '%';
+            dot.style.left = pos[i] + 'px';
             dot.dataset.index = i;
             dot.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -233,6 +256,13 @@
             const r = scrubberTrack.getBoundingClientRect();
             const pct = (e.clientX - r.left) / r.width;
             jumpToX(b.minX + pct * (b.maxX - b.minX));
+        });
+
+        // Pin spacing is computed in pixels, so it must be recalculated on resize.
+        let resizeTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => { renderScrubber(); updateScrubberViewport(); }, 120);
         });
     }
     
