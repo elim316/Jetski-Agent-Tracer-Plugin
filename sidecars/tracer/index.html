@@ -520,14 +520,43 @@
             
             // Transcript schemas differ: newer logs use `args`, older use `arguments`
             const targs = tool.arguments || tool.args || {};
-            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + escapeHtmlRaw(tool.name).toUpperCase() + '</div>' +
-                     '<div class="inspector-section"><div class="inspector-label">Action / Parameters</div>' +
-                     '<pre>' + escapeHtmlRaw(JSON.stringify(targs, null, 2)) + '</pre></div>';
+            const cleanStr = (v) => escapeHtmlRaw(typeof v === 'string' ? v.replace(/^"+|"+$/g, '') : JSON.stringify(v));
+            const prettyName = escapeHtmlRaw(tool.name).replace(/_/g, ' ').toUpperCase();
+
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + prettyName + '</div>';
+
+            // Human-readable headline: what the agent is doing, in plain English.
+            const headline = targs.toolSummary || targs.toolAction;
+            const subline = (targs.toolSummary && targs.toolAction) ? targs.toolAction : null;
+            if (headline) {
+                text += '<div class="inspector-section"><div class="inspector-label">What happened</div>' +
+                        '<div style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid '+titleColor+'; border-radius:6px; padding:14px;">' +
+                        '<div style="font-size:15px; font-weight:600; color:var(--foreground,#202124);">' + cleanStr(headline) + '</div>' +
+                        (subline ? '<div style="font-size:13px; color:var(--muted-foreground,#5f6368); margin-top:4px;">' + cleanStr(subline) + '</div>' : '') +
+                        '</div></div>';
+            }
+
+            // Remaining arguments shown as a friendly label/value list instead of JSON.
+            const skip = { toolAction: 1, toolSummary: 1 };
+            const detailKeys = Object.keys(targs).filter(k => !skip[k]);
+            if (detailKeys.length) {
+                let rows = '';
+                detailKeys.forEach(k => {
+                    const label = escapeHtmlRaw(k.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' '));
+                    let val = targs[k];
+                    if (typeof val === 'object') val = JSON.stringify(val, null, 2);
+                    val = cleanStr(val);
+                    rows += '<div style="padding:8px 0; border-bottom:1px solid var(--border,#f1f3f4);">' +
+                            '<div style="font-size:11px; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted-foreground,#80868b);">' + label + '</div>' +
+                            '<div style="font-size:13px; color:var(--foreground,#202124); word-break:break-word; white-space:pre-wrap;">' + val + '</div></div>';
+                });
+                text += '<div class="inspector-section"><div class="inspector-label">Details</div>' + rows + '</div>';
+            }
         }
         
-        text += '<div class="inspector-section" style="margin-top:24px; border-top:1px solid var(--border,#e8eaed); padding-top:16px;">' +
-                    '<div class="inspector-label">Raw Trace Data</div>' +
-                    '<pre style="background:var(--secondary,#f8f9fa); background:rgba(0,0,0,0.03); max-height:250px;">' + escapeHtmlRaw(JSON.stringify(data, null, 2)) + '</pre></div>';
+        text += '<details class="inspector-section" style="margin-top:24px; border-top:1px solid var(--border,#e8eaed); padding-top:16px;">' +
+                    '<summary style="cursor:pointer; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:var(--muted-foreground,#80868b); outline:none;">Advanced: Raw Trace Data</summary>' +
+                    '<pre style="margin-top:12px; background:var(--secondary,#f8f9fa); background:rgba(0,0,0,0.03); max-height:250px;">' + escapeHtmlRaw(JSON.stringify(data, null, 2)) + '</pre></details>';
         
         inspectorEl.innerHTML = text;
     }
