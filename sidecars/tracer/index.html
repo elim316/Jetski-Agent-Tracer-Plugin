@@ -441,8 +441,10 @@
                         let toolX = startToolX + (tIdx * 280); 
                         
                         if (!nodes.get(toolId)) {
-                            let tSummary = wrapText(truncate((tool.arguments && tool.arguments.toolSummary) ? tool.arguments.toolSummary : extractFallbackSummary(tool.arguments), 45), 28);
-                            let title = isSubagent ? '🤖 SUBAGENT: ' + (tool.arguments.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
+                            // Transcript schemas differ: newer logs use `args`, older use `arguments`
+                            let targs = tool.arguments || tool.args || {};
+                            let tSummary = wrapText(truncate(targs.toolSummary ? targs.toolSummary : extractFallbackSummary(targs), 45), 28);
+                            let title = isSubagent ? '🤖 SUBAGENT: ' + (targs.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
                             let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' }; 
                                 
                             newNodes.push({ id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color, font: { color: isSubagent ? '#1A237E' : '#006064', align: 'left', multi: false }, x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL });
@@ -516,9 +518,11 @@
             titleColor = isSubagent ? '#3F51B5' : '#00BCD4';
             icon = isSubagent ? '🤖 ' : '🔧 ';
             
+            // Transcript schemas differ: newer logs use `args`, older use `arguments`
+            const targs = tool.arguments || tool.args || {};
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + escapeHtmlRaw(tool.name).toUpperCase() + '</div>' +
                      '<div class="inspector-section"><div class="inspector-label">Action / Parameters</div>' +
-                     '<pre>' + escapeHtmlRaw(JSON.stringify(tool.arguments, null, 2)) + '</pre></div>';
+                     '<pre>' + escapeHtmlRaw(JSON.stringify(targs, null, 2)) + '</pre></div>';
         }
         
         text += '<div class="inspector-section" style="margin-top:24px; border-top:1px solid var(--border,#e8eaed); padding-top:16px;">' +
