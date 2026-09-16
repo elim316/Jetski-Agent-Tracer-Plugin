@@ -62,6 +62,11 @@
                 <input type="checkbox" id="toggleAutoFollow" checked style="cursor: pointer;">
                 <label for="toggleAutoFollow" style="cursor: pointer; user-select: none; font-weight: 500;">Auto-Follow New Nodes</label>
             </div>
+
+            <div style="display:flex; align-items:center; gap: 6px; font-size: 13px; color: var(--muted-foreground, #5f6368); margin-left: 8px;">
+                <input type="checkbox" id="toggleSimpleView" checked style="cursor: pointer;">
+                <label for="toggleSimpleView" style="cursor: pointer; user-select: none; font-weight: 500;" title="Hides router nodes that contain no reasoning, connecting actions directly to the timeline">Simple View</label>
+            </div>
             
             <div style="display:flex; align-items:center; gap: 8px; border-left: 1px solid var(--border, #dadce0); padding-left: 20px;">
                 <button id="btnResetZoom" style="background:var(--card, #fff); border:1px solid var(--border, #dadce0); border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; color:var(--foreground, #3c4043); font-weight: 500; transition: opacity 0.2s;">Zoom 1x</button>
@@ -136,6 +141,20 @@
     if (toggleAutoFollow) {
         toggleAutoFollow.addEventListener('change', (e) => {
             autoFollow = e.target.checked;
+        });
+    }
+
+    let simpleView = true;
+    const toggleSimpleView = document.getElementById('toggleSimpleView');
+    if (toggleSimpleView) {
+        toggleSimpleView.addEventListener('change', (e) => {
+            simpleView = e.target.checked;
+            // Node topology changes, so the graph must be rebuilt from the raw transcript.
+            nodes.clear();
+            edges.clear();
+            rawDataMap = {};
+            InitialLayoutDone = false;
+            if (window.lastTranscript) updateGraph(window.lastTranscript);
         });
     }
 
@@ -232,6 +251,8 @@
                     document.getElementById('graph-container').innerHTML = ''; 
                     initGraph(); 
                 }
+                // Cached so view-mode toggles can rebuild instantly without re-fetching.
+                window.lastTranscript = data;
                 updateGraph(data);
             }
         } catch (e) {
@@ -418,21 +439,33 @@
                 previousPlannerId = uId;
             } 
             else if (step.type === 'PLANNER_RESPONSE') {
-                currentX += 300;
-                if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, summary: "Analyzing..." };
-                if (step.thinking) currentTurn.summary = "Agent Goal: " + extractMacroSummary(step.thinking);
-                currentTurn.maxX = currentX;
-                
+                // A router node with no thinking AND no output is pure overhead: the agent
+                // went straight to a tool. In Simple View we collapse it and wire its tools
+                // directly onto the preceding node so the chain stays continuous.
+                let isEmptyRouter = !step.thinking && !step.content && step.tool_calls && step.tool_calls.length > 0;
+                let collapse = simpleView && isEmptyRouter;
+
                 let pId = 'planner_' + index;
-                
-                if (!nodes.get(pId)) {
-                    let thoughtExtract = wrapText(truncate(step.thinking ? step.thinking : 'Formulating plan/tools...', 50), 30);
-                    newNodes.push({ id: pId, label: '🧠 MAIN AGENT (ROUTER)\n' + thoughtExtract, shape: 'box', color: { background: '#F3E5F5', border: '#BA68C8' }, font: { color: '#4A148C', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
-                    rawDataMap[pId] = step;
-                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: {color: '#8E24AA'} });
+                let anchorId = previousPlannerId;
+
+                if (!collapse) {
+                    currentX += 300;
+                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, summary: "Analyzing..." };
+                    if (step.thinking) currentTurn.summary = "Agent Goal: " + extractMacroSummary(step.thinking);
+                    currentTurn.maxX = currentX;
+
+                    if (!nodes.get(pId)) {
+                        let thoughtExtract = wrapText(truncate(step.thinking ? step.thinking : 'Formulating plan/tools...', 50), 30);
+                        newNodes.push({ id: pId, label: '🧠 MAIN AGENT (ROUTER)\n' + thoughtExtract, shape: 'box', color: { background: '#F3E5F5', border: '#BA68C8' }, font: { color: '#4A148C', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                        rawDataMap[pId] = step;
+                        if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: {color: '#8E24AA'} });
+                    }
+                    previousPlannerId = pId;
+                    anchorId = pId;
+                } else {
+                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, summary: "Analyzing..." };
                 }
-                previousPlannerId = pId;
-                
+
                 if (step.tool_calls && step.tool_calls.length > 0) {
                     let startToolX = currentX + 180; 
                     step.tool_calls.forEach(function(tool, tIdx) {
@@ -449,7 +482,8 @@
                                 
                             newNodes.push({ id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color, font: { color: isSubagent ? '#1A237E' : '#006064', align: 'left', multi: false }, x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL });
                             rawDataMap[toolId] = { type: 'TOOL_CALL', step: step, tool: tool };
-                            newEdges.push({ from: pId, to: toolId, arrows: 'to, from', color: { color: '#78909c' }, width: 2 });
+                            // Collapsed steps get a dotted edge to signal a skipped router round-trip.
+                            if (anchorId) newEdges.push({ from: anchorId, to: toolId, arrows: 'to, from', color: { color: '#78909c' }, width: 2, dashes: collapse ? [2, 4] : false });
                         }
                         if (isSubagent) previousPlannerId = toolId;
                     });
