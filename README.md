@@ -21,7 +21,7 @@ A dynamic, LangGraph-style trajectory visualizer for Jetski. This UI plugin rend
 - **Goal bar:** A sticky strip under the toolbar that always names the request you're looking at — "Request 12 of 56" plus what the agent set out to do — with ‹ › steppers and a dropdown to jump to any request by name.
 - **Timeline scrubber:** A checkpoint pin per user request — click to jump, hover for the prompt and its timestamp. A blue band shows your current position in the overall trace.
 - **Long gaps marked:** When a session resumes hours or days later, the graph says so instead of running two different days together.
-- **Search:** Filter by tool name, prompt or thought text; non-matches dim, and Enter steps through hits.
+- **Search:** Filter by tool name, prompt or thought text; non-matches dim. Step through hits with ‹ ›, see your position as "7 / 42", and click the counter to list every match with the surrounding text so you can pick the right one.
 - **Keyboard shortcuts:** `←`/`→` move between requests, `/` focuses search, `Esc` clears it, `n` jumps to the next issue, `o` opens the overview.
 - **Real-Time Auto-Follow:** Pans to track the newest nodes as the agent works, and backs off automatically when you scroll into history.
 - **Jump to Start / End** plus zoom controls with strict Y-axis locking.

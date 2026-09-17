@@ -63,7 +63,9 @@
         #searchBox { background: var(--background, #fff); color: var(--foreground, #202124); border: 1px solid var(--border, #dadce0); border-radius: 4px; padding: 5px 9px; font-size: 12px; width: 150px; outline: none; transition: border-color 0.15s ease, width 0.15s ease; }
         #searchBox:focus { border-color: var(--primary, #1a73e8); width: 200px; }
         #searchBox::placeholder { color: var(--muted-foreground, #9aa0a6); }
-        #searchCount { font-size: 11px; color: var(--muted-foreground, #80868b); min-width: 42px; }
+        #searchCount { font-size: 11px; color: var(--muted-foreground, #80868b); min-width: 46px; text-align: center; background: transparent; border: none; padding: 3px 2px; font-family: inherit; cursor: pointer; border-radius: 4px; white-space: nowrap; }
+        #searchCount:hover:not(:disabled) { background: var(--secondary, #f1f3f4); color: var(--foreground, #202124); }
+        #searchCount:disabled { cursor: default; }
         #btnNextIssue { background: transparent; border: 1px solid var(--border, #dadce0); border-radius: 4px; padding: 5px 9px; font-size: 12px; cursor: pointer; color: var(--muted-foreground, #5f6368); font-weight: 600; transition: all 0.15s ease; }
         #btnNextIssue.has-issues { border-color: #D93025; color: #D93025; }
         #btnNextIssue.has-issues:hover { background: rgba(217,48,37,0.08); }
@@ -146,7 +148,9 @@
 
             <div class="tb-group">
                 <input type="text" id="searchBox" placeholder="Search trace…" title="Filter nodes by tool name, prompt or thought text">
-                <span id="searchCount"></span>
+                <button class="goalbar-step" id="searchPrev" title="Previous match (Shift+Enter)" disabled>‹</button>
+                <button id="searchCount" title="List every match" disabled></button>
+                <button class="goalbar-step" id="searchNext" title="Next match (Enter)" disabled>›</button>
                 <button id="btnNextIssue" title="List every error and failed step (n steps through them)" disabled>⚠ Issues</button>
             </div>
 
@@ -587,6 +591,21 @@
     let searchTerm = '';
     const searchBox = document.getElementById('searchBox');
     const searchCount = document.getElementById('searchCount');
+    const searchPrev = document.getElementById('searchPrev');
+    const searchNext = document.getElementById('searchNext');
+
+    // Matches in left-to-right trace order, and where we are within them.
+    let searchMatches = [];
+    let searchCursor = -1;
+
+    function searchHaystack(d) {
+        if (!d) return '';
+        if (d.type === 'TOOL_CALL') {
+            const a = (d.tool && (d.tool.arguments || d.tool.args)) || {};
+            return (d.tool ? d.tool.name : '') + ' ' + JSON.stringify(a) + ' ' + (d.result || '');
+        }
+        return (d.content || '') + ' ' + (d.thinking || '');
+    }
 
     function applySearch() {
         if (!nodes || !nodes.length) return;
@@ -600,30 +619,98 @@
                 return;
             }
             const hay = ((n.label || '') + ' ' + searchHaystack(rawDataMap[n.id])).toLowerCase();
-            const hit = hay.indexOf(term) !== -1;
-            if (hit) matches.push({ id: n.id, x: n.x });
-            updates.push({ id: n.id, opacity: hit ? 1 : 0.18 });
+            const at = hay.indexOf(term);
+            if (at !== -1) {
+                // Keep a little of the surrounding text so the results list can
+                // show *why* a node matched, not just that it did.
+                const raw = (n.label || '') + ' ' + searchHaystack(rawDataMap[n.id]);
+                const from = Math.max(0, at - 35);
+                matches.push({
+                    id: n.id, x: n.x,
+                    title: (n.label || n.id).split('\n')[0],
+                    context: (from > 0 ? '…' : '') +
+                             raw.slice(from, at + term.length + 45).replace(/\s+/g, ' ').trim() + '…'
+                });
+            }
+            updates.push({ id: n.id, opacity: at !== -1 ? 1 : 0.18 });
         });
 
         nodes.update(updates);
         searchMatches = matches.sort((a, b) => a.x - b.x);
         searchCursor = -1;
+        refreshSearchUI();
+    }
+
+    function refreshSearchUI() {
+        const n = searchMatches.length;
+        const active = !!searchTerm.trim();
         if (searchCount) {
-            searchCount.textContent = term ? (matches.length ? matches.length + ' hit' + (matches.length === 1 ? '' : 's') : 'none') : '';
+            searchCount.disabled = n === 0;
+            searchCount.textContent = !active ? '' :
+                (n === 0 ? 'none' :
+                 (searchCursor >= 0 ? (searchCursor + 1) + ' / ' + n
+                                    : n + ' hit' + (n === 1 ? '' : 's')));
         }
+        // Steppers wrap, so they only go dead when there is nothing to step to.
+        if (searchPrev) searchPrev.disabled = n === 0;
+        if (searchNext) searchNext.disabled = n === 0;
     }
 
-    function searchHaystack(d) {
-        if (!d) return '';
-        if (d.type === 'TOOL_CALL') {
-            const a = (d.tool && (d.tool.arguments || d.tool.args)) || {};
-            return (d.tool ? d.tool.name : '') + ' ' + JSON.stringify(a) + ' ' + (d.result || '');
-        }
-        return (d.content || '') + ' ' + (d.thinking || '');
+    // Wraps in both directions, so you can keep pressing one button to sweep
+    // the whole trace rather than dead-ending at the last hit.
+    function goToMatch(i) {
+        if (!searchMatches.length) return;
+        searchCursor = ((i % searchMatches.length) + searchMatches.length) % searchMatches.length;
+        const m = searchMatches[searchCursor];
+        jumpToX(m.x);
+        if (rawDataMap[m.id]) renderInspector(rawDataMap[m.id]);
+        refreshSearchUI();
+        highlightMatch(searchCursor);
     }
 
-    let searchMatches = [];
-    let searchCursor = -1;
+    function highlightMatch(i) {
+        document.querySelectorAll('.match-row').forEach(r =>
+            r.classList.toggle('active', parseInt(r.dataset.match, 10) === i));
+    }
+
+    // Stepping blind through hits means you never know what you are about to
+    // land on. The list shows them all, in trace order, with their context.
+    function renderSearchPanel() {
+        if (!inspectorEl || !searchMatches.length) return;
+        hasSelection = true;
+        let html = '<div id="inspector-title" style="color:#1967D2">🔎 MATCHES</div>' +
+                   '<div class="inspector-section"><div class="inspector-label">' +
+                   searchMatches.length + ' node' + (searchMatches.length === 1 ? '' : 's') +
+                   ' matching “' + escapeHtml(searchTerm.trim()) + '” — click one to jump to it</div>';
+        searchMatches.forEach((m, i) => {
+            html += '<button class="issue-row match-row' + (i === searchCursor ? ' active' : '') +
+                    '" data-match="' + i + '">' +
+                    '<span class="req">' + (i + 1) + '</span>' +
+                    '<span class="body"><span class="tool">' + escapeHtml(m.title) + '</span>' +
+                    '<span class="detail">' + escapeHtml(m.context) + '</span></span></button>';
+        });
+        html += '</div>';
+        inspectorEl.innerHTML = html;
+
+        inspectorEl.querySelectorAll('.match-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const i = parseInt(row.dataset.match, 10);
+                const m = searchMatches[i];
+                if (!m) return;
+                searchCursor = i;
+                jumpToX(m.x);
+                refreshSearchUI();
+                // Keep the list up rather than swapping it for the node
+                // inspector, so the user doesn't lose their place.
+                inspectorEl.querySelectorAll('.match-row').forEach(r =>
+                    r.classList.toggle('active', r === row));
+            });
+            row.addEventListener('dblclick', () => {
+                const m = searchMatches[parseInt(row.dataset.match, 10)];
+                if (m && rawDataMap[m.id]) renderInspector(rawDataMap[m.id]);
+            });
+        });
+    }
 
     if (searchBox) {
         let searchTimer = null;
@@ -632,17 +719,18 @@
             clearTimeout(searchTimer);
             searchTimer = setTimeout(applySearch, 180);
         });
-        // Enter steps through matches left to right.
         searchBox.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') { searchBox.value = ''; searchTerm = ''; applySearch(); searchBox.blur(); return; }
+            if (e.key === 'Escape') {
+                searchBox.value = ''; searchTerm = ''; applySearch(); searchBox.blur(); return;
+            }
             if (e.key !== 'Enter' || !searchMatches.length) return;
-            searchCursor = (searchCursor + 1) % searchMatches.length;
-            const m = searchMatches[searchCursor];
-            jumpToX(m.x);
-            if (rawDataMap[m.id]) renderInspector(rawDataMap[m.id]);
-            if (searchCount) searchCount.textContent = (searchCursor + 1) + '/' + searchMatches.length;
+            e.preventDefault();
+            goToMatch(searchCursor + (e.shiftKey ? -1 : 1));
         });
     }
+    if (searchPrev) searchPrev.addEventListener('click', () => goToMatch(searchCursor - 1));
+    if (searchNext) searchNext.addEventListener('click', () => goToMatch(searchCursor + 1));
+    if (searchCount) searchCount.addEventListener('click', () => renderSearchPanel());
 
     // --- Issue navigation --------------------------------------------------
     const btnNextIssue = document.getElementById('btnNextIssue');
