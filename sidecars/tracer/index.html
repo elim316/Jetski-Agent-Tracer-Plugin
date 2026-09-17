@@ -108,6 +108,13 @@
         .issue-row .tool { display: block; font-size: 12px; font-weight: 600; color: #A50E0E; }
         .issue-row .detail { display: block; font-size: 11px; color: var(--muted-foreground, #5f6368); line-height: 1.45; margin-top: 3px; word-break: break-word; }
         .issue-row .when { color: var(--muted-foreground, #9aa0a6); white-space: nowrap; }
+        /* Keyboard shortcut legend */
+        .key-row { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border, #f1f3f4); }
+        .key-row:last-child { border-bottom: none; }
+        .key-row .keys { flex: 0 0 106px; display: flex; gap: 4px; flex-wrap: wrap; }
+        .key-row .what { font-size: 12px; color: var(--foreground, #202124); line-height: 1.45; }
+        kbd { display: inline-block; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1; padding: 4px 6px; min-width: 9px; text-align: center; color: var(--foreground, #202124); background: var(--secondary, #f1f3f4); border: 1px solid var(--border, #dadce0); border-bottom-width: 2px; border-radius: 4px; }
+        .key-row .sep { font-size: 11px; color: var(--muted-foreground, #9aa0a6); align-self: center; }
     </style>
     <!-- Bridge script to interact directly with Jetski runtime! -->
     <script src="/preload.js"></script>
@@ -173,6 +180,7 @@
             <div class="tb-group">
                 <button id="btnOverview" class="tb-btn ghost" title="Show the session summary">Overview</button>
                 <button id="btnExport" class="tb-btn ghost" title="Copy this request's activity as markdown">Copy request</button>
+                <button id="btnKeys" class="tb-btn ghost" title="Keyboard shortcuts (?)">⌨</button>
             </div>
         </div>
     </div>
@@ -1689,6 +1697,37 @@
     }
     window.showIssues = renderIssuesPanel;
 
+    // --- Keyboard legend -----------------------------------------------------
+    // Shortcuts that nobody can discover are shortcuts nobody uses.
+    const SHORTCUTS = [
+        { keys: ['←', '→'],        what: 'Previous / next request' },
+        { keys: ['/'],             what: 'Jump to the search box' },
+        { keys: ['Enter'],         what: 'Next search match (while in the search box)' },
+        { keys: ['⇧', 'Enter'],    what: 'Previous search match', join: '+' },
+        { keys: ['Esc'],           what: 'Clear the search' },
+        { keys: ['n'],             what: 'Next failure' },
+        { keys: ['o'],             what: 'Session overview' },
+        { keys: ['?'],             what: 'This list' },
+    ];
+
+    function renderShortcuts() {
+        if (!inspectorEl) return;
+        hasSelection = true;
+        let html = '<div id="inspector-title">⌨ KEYBOARD SHORTCUTS</div>' +
+                   '<div class="inspector-section">';
+        SHORTCUTS.forEach(s => {
+            const keys = s.keys.map(k => '<kbd>' + escapeHtml(k) + '</kbd>')
+                               .join(s.join === '+' ? '<span class="sep">+</span>' : '');
+            html += '<div class="key-row"><span class="keys">' + keys + '</span>' +
+                    '<span class="what">' + escapeHtml(s.what) + '</span></div>';
+        });
+        html += '</div><div class="inspector-label" style="margin-top:14px; text-transform:none; ' +
+                'letter-spacing:0; font-weight:400;">Shortcuts are ignored while you are typing in a ' +
+                'field, so the search box still behaves normally.</div>';
+        inspectorEl.innerHTML = html;
+    }
+    window.showShortcuts = renderShortcuts;
+
     // Shared with the overview; renderInspector defines its own local copy.
     function escapeHtml(unsafe) {
         return unsafe ? unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -1723,16 +1762,16 @@
         return lines.join('\n');
     }
 
-    // The panel runs inside an iframe, where navigator.clipboard is commonly
-    // unavailable or rejected for want of a clipboard-write permission. Fall
-    // back to the old selection trick, which still works in that context.
-    async function copyText(text) {
-        try {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(text);
-                return true;
-            }
-        } catch (e) { /* blocked - try the fallback below */ }
+    // Copying from this panel is awkward: it runs in an iframe, so
+    // navigator.clipboard is usually missing or rejected for want of a
+    // clipboard-write permission.
+    //
+    // Order matters here. execCommand('copy') requires the browser's "user
+    // activation" from the click that triggered it, and *awaiting* the async
+    // clipboard API first consumes that activation -- so trying the modern API
+    // first silently guarantees the fallback fails too. Run the synchronous
+    // path first, while the gesture is still live.
+    function copySync(text) {
         try {
             const ta = document.createElement('textarea');
             ta.value = text;
@@ -1745,7 +1784,6 @@
             document.body.removeChild(ta);
             return ok;
         } catch (e) {
-            console.error('Clipboard fallback failed:', e);
             return false;
         }
     }
@@ -1758,8 +1796,8 @@
         inspectorEl.innerHTML =
             '<div id="inspector-title" style="color:#F9AB00">📋 COPY MANUALLY</div>' +
             '<div class="inspector-section"><div class="inspector-label">' +
-            'This panel is not allowed to write to the clipboard. Select the text below and press Ctrl+C.' +
-            '</div><textarea id="copyFallbackBox" style="width:100%; height:300px; font-family:monospace; ' +
+            'This panel is not allowed to write to the clipboard. The text is selected below — press Ctrl+C.' +
+            '</div><textarea id="copyFallbackBox" style="width:100%; height:340px; font-family:monospace; ' +
             'font-size:11px; padding:8px; box-sizing:border-box; border:1px solid var(--border,#dadce0); ' +
             'border-radius:6px; background:var(--secondary,#f8f9fa); color:var(--foreground,#202124);">' +
             escapeHtml(text) + '</textarea></div>';
@@ -1767,19 +1805,29 @@
         if (box) { box.focus(); box.select(); }
     }
 
+    function flashButton(btn, msg) {
+        const original = btn.dataset.label || btn.textContent;
+        btn.dataset.label = original;
+        btn.textContent = msg;
+        setTimeout(() => { btn.textContent = btn.dataset.label || original; }, 1600);
+    }
+
     const btnExport = document.getElementById('btnExport');
     if (btnExport) {
-        btnExport.addEventListener('click', async () => {
+        // Deliberately not an async function: the handler must reach copySync
+        // without an intervening await.
+        btnExport.addEventListener('click', () => {
             const md = requestAsMarkdown(activeGoalTurn);
             if (!md) return;
-            const original = btnExport.textContent;
-            if (await copyText(md)) {
-                btnExport.textContent = 'Copied';
-            } else {
-                btnExport.textContent = 'Copy blocked';
-                showCopyFallback(md);
+            if (copySync(md)) { flashButton(btnExport, 'Copied'); return; }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(md)
+                    .then(() => flashButton(btnExport, 'Copied'))
+                    .catch(() => { flashButton(btnExport, 'Copy blocked'); showCopyFallback(md); });
+                return;
             }
-            setTimeout(() => { btnExport.textContent = original; }, 1600);
+            flashButton(btnExport, 'Copy blocked');
+            showCopyFallback(md);
         });
     }
 
@@ -1817,8 +1865,14 @@
             case 'o': case 'O':
                 if (btnOverview) { btnOverview.click(); e.preventDefault(); }
                 break;
+            case '?':
+                renderShortcuts(); e.preventDefault();
+                break;
         }
     });
+
+    const btnKeys = document.getElementById('btnKeys');
+    if (btnKeys) btnKeys.addEventListener('click', () => renderShortcuts());
 
     function renderInspector(data) {
         hasSelection = true;

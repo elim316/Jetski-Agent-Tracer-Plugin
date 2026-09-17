@@ -22,7 +22,7 @@ A dynamic, LangGraph-style trajectory visualizer for Jetski. This UI plugin rend
 - **Timeline scrubber:** A checkpoint pin per user request — click to jump, hover for the prompt and its timestamp. A blue band shows your current position in the overall trace.
 - **Long gaps marked:** When a session resumes hours or days later, the graph says so instead of running two different days together.
 - **Search:** Filter by tool name, prompt or thought text; non-matches dim. Step through hits with ‹ ›, see your position as "7 / 42", and click the counter to list every match with the surrounding text so you can pick the right one.
-- **Keyboard shortcuts:** `←`/`→` move between requests, `/` focuses search, `Esc` clears it, `n` jumps to the next issue, `o` opens the overview.
+- **Keyboard shortcuts:** `←`/`→` move between requests, `/` focuses search, `Enter`/`Shift+Enter` step through matches, `Esc` clears it, `n` jumps to the next failure, `o` opens the overview. Press `?` (or the ⌨ button) for the full legend in-app.
 - **Real-Time Auto-Follow:** Pans to track the newest nodes as the agent works, and backs off automatically when you scroll into history.
 - **Jump to Start / End** plus zoom controls with strict Y-axis locking.
 
