@@ -1055,53 +1055,65 @@
                     step.tool_calls.forEach(function(tool, tIdx) {
                         let toolId = pId + '_tool_' + tIdx;
                         let isSubagent = tool.name === 'invoke_subagent';
-                        let toolX = startToolX + (tIdx * 280); 
-                        
+                        let toolX = startToolX + (tIdx * 280);
+
+                        // Pair this call with the GENERIC step that carried its output.
+                        const resSteps = resultsFor[step.step_index];
+                        const resultStep = resSteps && resSteps[tIdx] ? resSteps[tIdx] : null;
+                        const resultText = resultStep ? (resultStep.content || '') : '';
+                        const failed = isFailure(resultText, tool.name);
+                        const running = step.status === 'RUNNING' || (!resultStep && step.status !== 'DONE');
+                        const tTiming = parseTiming(resultText, step, resultStep);
+
+                        // Tally on every pass, not just when the node is first drawn.
+                        // Nodes persist across polls, but `turns` and `issueNodes` are
+                        // rebuilt from scratch each time, so doing this inside the
+                        // creation guard below made the counts correct on the first
+                        // paint and zero on every poll after it.
+                        if (failed) issueNodes.push({ id: toolId, x: toolX });
+                        if (currentTurn && currentTurn.tools) {
+                            currentTurn.tools.push({
+                                name: tool.name, failed: failed, running: running,
+                                ms: tTiming ? tTiming.ms : null,
+                                summary: summarizeResult(resultText, tool.name, failed)
+                            });
+                        }
+
+                        // Transcript schemas differ: newer logs use `args`, older use `arguments`
+                        let targs = tool.arguments || tool.args || {};
+                        let tSummary = wrapText(truncate(targs.toolSummary ? targs.toolSummary : extractFallbackSummary(targs), 45), 28);
+                        let title = isSubagent ? '🤖 SUBAGENT: ' + (targs.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
+                        let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' };
+
+                        if (failed) {
+                            title = '⛔ FAILED: ' + tool.name;
+                            color = { background: '#FCE8E6', border: '#D93025' };
+                        } else if (running) {
+                            title = '⏳ RUNNING: ' + tool.name;
+                            color = { background: '#FEF7E0', border: '#F9AB00' };
+                        }
+
+                        // Surface slow calls on the node itself so bottlenecks
+                        // are visible without opening every step.
+                        if (tTiming && tTiming.ms >= SLOW_MS) title += '  🐢 ' + formatDuration(tTiming.ms);
+
+                        const visual = { id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color,
+                            font: { color: failed ? '#A50E0E' : (isSubagent ? '#1A237E' : '#006064'), align: 'left', multi: false },
+                            shapeProperties: running ? { borderDashes: [5, 4] } : { borderDashes: false },
+                            x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL };
+
+                        const prior = rawDataMap[toolId];
                         if (!nodes.get(toolId)) {
-                            // Transcript schemas differ: newer logs use `args`, older use `arguments`
-                            let targs = tool.arguments || tool.args || {};
-                            let tSummary = wrapText(truncate(targs.toolSummary ? targs.toolSummary : extractFallbackSummary(targs), 45), 28);
-                            let title = isSubagent ? '🤖 SUBAGENT: ' + (targs.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
-                            let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' };
-
-                            // Pair this call with the GENERIC step that carried its output.
-                            const resSteps = resultsFor[step.step_index];
-                            const resultStep = resSteps && resSteps[tIdx] ? resSteps[tIdx] : null;
-                            const resultText = resultStep ? (resultStep.content || '') : '';
-                            const failed = isFailure(resultText, tool.name);
-                            const running = step.status === 'RUNNING' || (!resultStep && step.status !== 'DONE');
-
-                            if (failed) {
-                                title = '⛔ FAILED: ' + tool.name;
-                                color = { background: '#FCE8E6', border: '#D93025' };
-                            } else if (running) {
-                                title = '⏳ RUNNING: ' + tool.name;
-                                color = { background: '#FEF7E0', border: '#F9AB00' };
-                            }
-
-                            // Surface slow calls on the node itself so bottlenecks
-                            // are visible without opening every step.
-                            const tTiming = parseTiming(resultText, step, resultStep);
-                            if (tTiming && tTiming.ms >= SLOW_MS) title += '  🐢 ' + formatDuration(tTiming.ms);
-
-                            newNodes.push({ id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color,
-                                font: { color: failed ? '#A50E0E' : (isSubagent ? '#1A237E' : '#006064'), align: 'left', multi: false },
-                                shapeProperties: running ? { borderDashes: [5, 4] } : { borderDashes: false },
-                                x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL });
-                            rawDataMap[toolId] = { type: 'TOOL_CALL', step: step, tool: tool, result: resultText, resultStep: resultStep, failed: failed, running: running };
-                            if (failed) issueNodes.push({ id: toolId, x: toolX });
-                            // Recorded on the turn so the overview and export can
-                            // report per-request activity without re-walking data.
-                            if (currentTurn) {
-                                currentTurn.tools.push({
-                                    name: tool.name, failed: failed, running: running,
-                                    ms: tTiming ? tTiming.ms : null,
-                                    summary: summarizeResult(resultText, tool.name, failed)
-                                });
-                            }
+                            newNodes.push(visual);
                             // Collapsed steps get a dotted edge to signal a skipped router round-trip.
                             if (anchorId) newEdges.push({ from: anchorId, to: toolId, arrows: 'to, from', color: { color: '#78909c' }, width: 2, dashes: collapse ? [2, 4] : false });
+                        } else if (prior && (prior.running !== running || prior.failed !== failed)) {
+                            // A call drawn while in flight would otherwise stay amber
+                            // and dashed forever, since the node already exists.
+                            nodes.update(visual);
                         }
+                        rawDataMap[toolId] = { type: 'TOOL_CALL', step: step, tool: tool, result: resultText, resultStep: resultStep, failed: failed, running: running };
+
                         if (isSubagent) previousPlannerId = toolId;
                     });
                     
