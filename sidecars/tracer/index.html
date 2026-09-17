@@ -89,6 +89,20 @@
         .checkpoint.active { background: #F57C00; box-shadow: 0 0 0 4px rgba(245,124,0,0.2); z-index: 3; }
         .checkpoint-tip { position: absolute; bottom: 26px; transform: translateX(-50%); background: #202124; color: #fff; font-size: 11px; line-height: 1.4; padding: 7px 10px; border-radius: 6px; max-width: 280px; white-space: normal; pointer-events: none; opacity: 0; transition: opacity 0.15s ease; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
         .checkpoint-tip.show { opacity: 1; }
+        /* Failures get their own red ticks below the request pins, so where
+           things went wrong is visible at a glance across the whole trace. */
+        .issue-mark { position: absolute; top: 50%; width: 4px; height: 16px; margin-left: -2px; margin-top: -8px; background: #D93025; border-radius: 2px; cursor: pointer; z-index: 3; opacity: 0.85; transition: transform 0.15s ease, opacity 0.15s ease; }
+        .issue-mark::before { content: ''; position: absolute; top: -8px; left: -5px; right: -5px; bottom: -8px; }
+        .issue-mark:hover { transform: scaleX(2.2) scaleY(1.2); opacity: 1; z-index: 6; }
+        .issue-mark.active { background: #A50E0E; transform: scaleX(2.2) scaleY(1.25); opacity: 1; z-index: 6; }
+        /* Issue list rows in the inspector */
+        .issue-row { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: var(--secondary, #f8f9fa); border: 1px solid var(--border, #eee); border-left: 3px solid #D93025; border-radius: 6px; padding: 9px 11px; margin-bottom: 7px; cursor: pointer; font: inherit; color: inherit; transition: background 0.12s ease, border-color 0.12s ease; }
+        .issue-row:hover { background: rgba(217,48,37,0.07); border-color: #D93025; }
+        .issue-row.active { background: rgba(217,48,37,0.12); border-color: #D93025; }
+        .issue-row .req { flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted-foreground, #80868b); padding-top: 2px; min-width: 34px; }
+        .issue-row .body { min-width: 0; flex: 1; }
+        .issue-row .tool { font-size: 12px; font-weight: 600; color: #A50E0E; }
+        .issue-row .detail { font-size: 11px; color: var(--muted-foreground, #5f6368); line-height: 1.45; margin-top: 2px; word-break: break-word; }
     </style>
     <!-- Bridge script to interact directly with Jetski runtime! -->
     <script src="/preload.js"></script>
@@ -130,7 +144,7 @@
             <div class="tb-group">
                 <input type="text" id="searchBox" placeholder="Search trace…" title="Filter nodes by tool name, prompt or thought text">
                 <span id="searchCount"></span>
-                <button id="btnNextIssue" title="Jump to the next error or failed step" disabled>⚠ Issues</button>
+                <button id="btnNextIssue" title="List every error and failed step (n steps through them)" disabled>⚠ Issues</button>
             </div>
 
             <div class="tb-sep"></div>
@@ -308,6 +322,49 @@
             dot.addEventListener('mouseleave', () => checkpointTip.classList.remove('show'));
             scrubberTrack.appendChild(dot);
         });
+
+        // Failures ride the same track. A single cycling button makes you press
+        // it N times to find out where trouble is; ticks show that at a glance.
+        issueNodes.forEach((iss, i) => {
+            const mark = document.createElement('div');
+            mark.className = 'issue-mark';
+            mark.dataset.issue = i;
+            mark.style.left = Math.max(0, Math.min(trackW, ((iss.x - b.minX) / span) * trackW)) + 'px';
+            mark.addEventListener('click', (e) => {
+                e.stopPropagation();
+                goToIssue(i);
+            });
+            mark.addEventListener('mouseenter', () => {
+                const r = mark.getBoundingClientRect();
+                checkpointTip.textContent = '⛔ ' + (iss.requestNum ? 'Request ' + iss.requestNum + ' · ' : '') +
+                                            iss.tool + ' — ' + iss.detail;
+                checkpointTip.style.left = (r.left + r.width / 2) + 'px';
+                checkpointTip.style.bottom = (window.innerHeight - r.top + 10) + 'px';
+                checkpointTip.classList.add('show');
+            });
+            mark.addEventListener('mouseleave', () => checkpointTip.classList.remove('show'));
+            scrubberTrack.appendChild(mark);
+        });
+    }
+
+    // Shared by the ticks, the list and the keyboard shortcut, so the highlight
+    // stays in sync no matter which one is driving.
+    function goToIssue(i) {
+        if (!issueNodes.length) return;
+        issueCursor = ((i % issueNodes.length) + issueNodes.length) % issueNodes.length;
+        const target = issueNodes[issueCursor];
+        jumpToX(target.x);
+        if (rawDataMap[target.id]) renderInspector(rawDataMap[target.id]);
+        highlightIssue(issueCursor);
+    }
+
+    function highlightIssue(i) {
+        if (scrubberTrack) {
+            scrubberTrack.querySelectorAll('.issue-mark').forEach(m =>
+                m.classList.toggle('active', parseInt(m.dataset.issue, 10) === i));
+        }
+        document.querySelectorAll('.issue-row').forEach(r =>
+            r.classList.toggle('active', parseInt(r.dataset.issue, 10) === i));
     }
 
     function updateScrubberViewport() {
@@ -594,13 +651,9 @@
         btnNextIssue.textContent = n ? '⚠ ' + n + ' issue' + (n === 1 ? '' : 's') : '⚠ No issues';
     }
     if (btnNextIssue) {
-        btnNextIssue.addEventListener('click', () => {
-            if (!issueNodes.length) return;
-            issueCursor = (issueCursor + 1) % issueNodes.length;
-            const target = issueNodes[issueCursor];
-            jumpToX(target.x);
-            if (rawDataMap[target.id]) renderInspector(rawDataMap[target.id]);
-        });
+        // Opens the full list. Stepping one at a time is still available via the
+        // `n` shortcut and the ticks on the timeline.
+        btnNextIssue.addEventListener('click', () => renderIssuesPanel());
     }
 
     const zoomSlider = document.getElementById('zoomSlider');
@@ -985,7 +1038,12 @@
                     if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: eId, arrows: 'to', color: { color: '#D93025' }, width: 3 });
                 }
                 previousPlannerId = eId;
-                issueNodes.push({ id: eId, x: currentX });
+                issueNodes.push({
+                    id: eId, x: currentX, kind: 'error', tool: 'Agent error',
+                    requestNum: currentTurn ? currentTurn.num : 0,
+                    detail: truncate((step.content || 'Unknown error').split('\n')[0], 90),
+                    time: step.created_at || null
+                });
                 if (currentTurn) currentTurn.maxX = currentX;
             }
             else if (step.type === 'CHECKPOINT') {
@@ -1070,12 +1128,22 @@
                         // rebuilt from scratch each time, so doing this inside the
                         // creation guard below made the counts correct on the first
                         // paint and zero on every poll after it.
-                        if (failed) issueNodes.push({ id: toolId, x: toolX });
+                        const tSummaryObj = summarizeResult(resultText, tool.name, failed);
+                        if (failed) {
+                            // Carry enough context to describe the failure in a list,
+                            // so the user can see what broke without visiting each node.
+                            issueNodes.push({
+                                id: toolId, x: toolX, kind: 'tool', tool: tool.name,
+                                requestNum: currentTurn ? currentTurn.num : 0,
+                                detail: tSummaryObj ? tSummaryObj.headline : 'Failed',
+                                time: step.created_at || null
+                            });
+                        }
                         if (currentTurn && currentTurn.tools) {
                             currentTurn.tools.push({
                                 name: tool.name, failed: failed, running: running,
                                 ms: tTiming ? tTiming.ms : null,
-                                summary: summarizeResult(resultText, tool.name, failed)
+                                summary: tSummaryObj
                             });
                         }
 
@@ -1479,6 +1547,56 @@
     }
     window.showOverview = renderOverview;
 
+    // --- Issue list ----------------------------------------------------------
+    // Cycling one button meant you could only ever see a single failure, with
+    // no idea how many were left or where they sat. List them all instead.
+    function renderIssuesPanel() {
+        if (!inspectorEl) return;
+        hasSelection = true;
+
+        let html = '<div id="inspector-title" style="color:#D93025">⛔ FAILURES</div>';
+        if (!issueNodes.length) {
+            html += '<div class="empty-state" style="font-size:13px;">' +
+                    'Nothing failed in this trace.</div>';
+            inspectorEl.innerHTML = html;
+            return;
+        }
+
+        html += '<div class="inspector-section"><div class="inspector-label">' +
+                issueNodes.length + (issueNodes.length === 1 ? ' failure' : ' failures') +
+                ' — click one to jump to it</div>';
+        issueNodes.forEach((iss, i) => {
+            html += '<button class="issue-row' + (i === issueCursor ? ' active' : '') +
+                    '" data-issue="' + i + '">' +
+                    '<span class="req">' + (iss.requestNum ? '#' + iss.requestNum : '—') + '</span>' +
+                    '<span class="body"><span class="tool">' + escapeHtml(iss.tool) + '</span>' +
+                    '<span class="detail">' + escapeHtml(iss.detail || '') +
+                    (iss.time ? ' · ' + formatStamp(iss.time) : '') + '</span></span></button>';
+        });
+        html += '</div>';
+        inspectorEl.innerHTML = html;
+
+        inspectorEl.querySelectorAll('.issue-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const i = parseInt(row.dataset.issue, 10);
+                const target = issueNodes[i];
+                if (!target) return;
+                issueCursor = i;
+                jumpToX(target.x);
+                highlightIssue(i);
+                // Keep the list on screen; selecting a row shouldn't replace it
+                // with the node inspector and lose the user's place.
+                inspectorEl.querySelectorAll('.issue-row').forEach(r =>
+                    r.classList.toggle('active', r === row));
+            });
+            row.addEventListener('dblclick', () => {
+                const target = issueNodes[parseInt(row.dataset.issue, 10)];
+                if (target && rawDataMap[target.id]) renderInspector(rawDataMap[target.id]);
+            });
+        });
+    }
+    window.showIssues = renderIssuesPanel;
+
     // Shared with the overview; renderInspector defines its own local copy.
     function escapeHtml(unsafe) {
         return unsafe ? unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -1513,20 +1631,61 @@
         return lines.join('\n');
     }
 
+    // The panel runs inside an iframe, where navigator.clipboard is commonly
+    // unavailable or rejected for want of a clipboard-write permission. Fall
+    // back to the old selection trick, which still works in that context.
+    async function copyText(text) {
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (e) { /* blocked - try the fallback below */ }
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed; top:0; left:-9999px; opacity:0;';
+            document.body.appendChild(ta);
+            ta.select();
+            ta.setSelectionRange(0, text.length);
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok;
+        } catch (e) {
+            console.error('Clipboard fallback failed:', e);
+            return false;
+        }
+    }
+
+    // Last resort: put the text on screen, pre-selected, so the user can still
+    // get it out with Ctrl+C instead of hitting a dead end.
+    function showCopyFallback(text) {
+        if (!inspectorEl) return;
+        hasSelection = true;
+        inspectorEl.innerHTML =
+            '<div id="inspector-title" style="color:#F9AB00">📋 COPY MANUALLY</div>' +
+            '<div class="inspector-section"><div class="inspector-label">' +
+            'This panel is not allowed to write to the clipboard. Select the text below and press Ctrl+C.' +
+            '</div><textarea id="copyFallbackBox" style="width:100%; height:300px; font-family:monospace; ' +
+            'font-size:11px; padding:8px; box-sizing:border-box; border:1px solid var(--border,#dadce0); ' +
+            'border-radius:6px; background:var(--secondary,#f8f9fa); color:var(--foreground,#202124);">' +
+            escapeHtml(text) + '</textarea></div>';
+        const box = document.getElementById('copyFallbackBox');
+        if (box) { box.focus(); box.select(); }
+    }
+
     const btnExport = document.getElementById('btnExport');
     if (btnExport) {
         btnExport.addEventListener('click', async () => {
             const md = requestAsMarkdown(activeGoalTurn);
             if (!md) return;
             const original = btnExport.textContent;
-            try {
-                await navigator.clipboard.writeText(md);
+            if (await copyText(md)) {
                 btnExport.textContent = 'Copied';
-            } catch (e) {
-                // Clipboard access can be blocked; make the failure visible
-                // rather than leaving the button looking like it worked.
-                console.error('Clipboard write failed:', e);
-                btnExport.textContent = 'Copy failed';
+            } else {
+                btnExport.textContent = 'Copy blocked';
+                showCopyFallback(md);
             }
             setTimeout(() => { btnExport.textContent = original; }, 1600);
         });
@@ -1561,7 +1720,7 @@
                 }
                 break;
             case 'n': case 'N':
-                if (btnNextIssue && !btnNextIssue.disabled) { btnNextIssue.click(); e.preventDefault(); }
+                if (issueNodes.length) { goToIssue(issueCursor + 1); e.preventDefault(); }
                 break;
             case 'o': case 'O':
                 if (btnOverview) { btnOverview.click(); e.preventDefault(); }
