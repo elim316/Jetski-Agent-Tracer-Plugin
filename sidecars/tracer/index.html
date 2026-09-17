@@ -239,8 +239,33 @@
     let rawDataMap = {}; 
     let InitialLayoutDone = false;
     let currentZoom = 1.0;
-    const BASE_Y_USER = -240;
-    const BASE_Y_TOOL = 240;
+    // Lane offsets from the canvas centre. These were fixed at ±240, which put
+    // the tool lane underneath the scrubber whenever the panel was short. Derive
+    // them from the actual canvas instead: line up with the CSS lane bands
+    // (each a third of the height) but never so far out that a node's box is
+    // clipped by the edge.
+    const NODE_HALF_H = 58;   // generous half-height of a two-line node box
+    let BASE_Y_USER = -240;
+    let BASE_Y_TOOL = 240;
+
+    function laneOffsetFor(height) {
+        if (!height) return 240;
+        // Prefer lining up with the CSS band (a third of the height), but the
+        // fit constraint wins: a lane pushed off the bottom is worse than a
+        // cramped one. The floor only matters on absurdly short panels.
+        return Math.min(height / 3, Math.max(60, height / 2 - NODE_HALF_H));
+    }
+
+    // Returns true when the geometry actually moved, so callers can skip
+    // repainting every node for a no-op resize.
+    function recomputeLaneGeometry() {
+        const w = document.getElementById('canvas-wrapper');
+        const offset = laneOffsetFor(w ? w.clientHeight : 0);
+        if (Math.abs(offset - BASE_Y_TOOL) < 1) return false;
+        BASE_Y_USER = -offset;
+        BASE_Y_TOOL = offset;
+        return true;
+    }
     
     function getActiveConversationId() {
         if (window.sidecar && window.sidecar.conversationId) return window.sidecar.conversationId;
@@ -755,29 +780,52 @@
         btnNextIssue.addEventListener('click', () => renderIssuesPanel());
     }
 
+    // Snaps every node back onto its lane. Needed after a zoom (lanes are
+    // divided by the scale) and after a resize (the offsets themselves change).
+    function applyLaneGeometry() {
+        if (!nodes || !nodes.length) return;
+        const y_user_scaled = BASE_Y_USER / currentZoom;
+        const y_tool_scaled = BASE_Y_TOOL / currentZoom;
+        const updates = [];
+        nodes.forEach(n => {
+            if (n.id.startsWith('user_') || n.id.startsWith('gap_')) {
+                updates.push({ id: n.id, y: y_user_scaled });
+            }
+            // A subagent belongs in the agent lane. Detect it from the call
+            // itself: a failed or running node relabels away from "SUBAGENT",
+            // so sniffing the label would drop it into the tool lane.
+            else if (n.id.includes('_tool_')) {
+                const d = rawDataMap[n.id];
+                const sub = d && d.tool && d.tool.name === 'invoke_subagent';
+                if (!sub) updates.push({ id: n.id, y: y_tool_scaled });
+            }
+        });
+        if (updates.length) nodes.update(updates);
+    }
+
     const zoomSlider = document.getElementById('zoomSlider');
     if (zoomSlider) {
         zoomSlider.addEventListener('input', function() {
             if (!network) return;
             currentZoom = parseFloat(this.value);
-            let y_user_scaled = BASE_Y_USER / currentZoom;
-            let y_tool_scaled = BASE_Y_TOOL / currentZoom;
-            let updates = [];
-            nodes.forEach(n => {
-                if (n.id.startsWith('user_')) updates.push({ id: n.id, y: y_user_scaled });
-                // A subagent belongs in the agent lane. Detect it from the call
-                // itself: a failed or running node relabels away from "SUBAGENT",
-                // so sniffing the label would drop it into the tool lane.
-                else if (n.id.includes('_tool_')) {
-                    const d = rawDataMap[n.id];
-                    const sub = d && d.tool && d.tool.name === 'invoke_subagent';
-                    if (!sub) updates.push({ id: n.id, y: y_tool_scaled });
-                }
-            });
-            nodes.update(updates);
+            applyLaneGeometry();
             network.moveTo({ scale: currentZoom, animation: false });
             syncViewportUI();
         });
+    }
+
+    // The panel gets resized constantly (dragging the split, collapsing the
+    // inspector). Without this the tool lane keeps whatever offset it had when
+    // the page loaded and slides under the scrubber.
+    function handleCanvasResize() {
+        if (!recomputeLaneGeometry()) return;
+        applyLaneGeometry();
+        syncViewportUI();
+    }
+    window.addEventListener('resize', handleCanvasResize);
+    if (window.ResizeObserver) {
+        const wrapEl = document.getElementById('canvas-wrapper');
+        if (wrapEl) new ResizeObserver(handleCanvasResize).observe(wrapEl);
     }
     
     const btnResetZoom = document.getElementById('btnResetZoom');
@@ -932,6 +980,9 @@
     function initGraph() {
         const container = document.getElementById('graph-container');
         const graphData = { nodes: nodes, edges: edges };
+        // Measure before the first nodes are placed, so they land on the right
+        // lanes instead of being nudged into place a frame later.
+        recomputeLaneGeometry();
         
         const options = {
             physics: false,
