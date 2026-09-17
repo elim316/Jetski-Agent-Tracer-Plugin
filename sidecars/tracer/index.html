@@ -101,8 +101,11 @@
         .issue-row.active { background: rgba(217,48,37,0.12); border-color: #D93025; }
         .issue-row .req { flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted-foreground, #80868b); padding-top: 2px; min-width: 34px; }
         .issue-row .body { min-width: 0; flex: 1; }
-        .issue-row .tool { font-size: 12px; font-weight: 600; color: #A50E0E; }
-        .issue-row .detail { font-size: 11px; color: var(--muted-foreground, #5f6368); line-height: 1.45; margin-top: 2px; word-break: break-word; }
+        /* These are spans, so they need an explicit block to stack instead of
+           running the cause straight on from the tool name. */
+        .issue-row .tool { display: block; font-size: 12px; font-weight: 600; color: #A50E0E; }
+        .issue-row .detail { display: block; font-size: 11px; color: var(--muted-foreground, #5f6368); line-height: 1.45; margin-top: 3px; word-break: break-word; }
+        .issue-row .when { color: var(--muted-foreground, #9aa0a6); white-space: nowrap; }
     </style>
     <!-- Bridge script to interact directly with Jetski runtime! -->
     <script src="/preload.js"></script>
@@ -1571,7 +1574,8 @@
                     '<span class="req">' + (iss.requestNum ? '#' + iss.requestNum : '—') + '</span>' +
                     '<span class="body"><span class="tool">' + escapeHtml(iss.tool) + '</span>' +
                     '<span class="detail">' + escapeHtml(iss.detail || '') +
-                    (iss.time ? ' · ' + formatStamp(iss.time) : '') + '</span></span></button>';
+                    (iss.time ? ' <span class="when">· ' + formatStamp(iss.time) + '</span>' : '') +
+                    '</span></span></button>';
         });
         html += '</div>';
         inspectorEl.innerHTML = html;
