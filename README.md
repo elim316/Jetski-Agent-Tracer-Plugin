@@ -12,17 +12,23 @@ A dynamic, LangGraph-style trajectory visualizer for Jetski. This UI plugin rend
 **Reading the trace**
 - **Complete coverage:** Renders every step type in the transcript — user prompts, agent reasoning, tool calls, errors, system notices and context checkpoints. Nothing is silently dropped.
 - **Plain-English inspector:** Click any node for a human-readable summary of what happened, with parameters as a labelled list and the raw JSON tucked behind an "Advanced" toggle.
-- **Tool results inline:** Each tool node shows not just what was called, but what came back.
-- **Errors surfaced:** Failed calls turn red, in-flight calls show amber and dashed, and an **⚠ Issues** button cycles straight through every failure in the trace.
+- **Result summaries:** Every tool result opens with a one-line answer to "what came back?" plus a few stat chips (lines read, files found, exit status). The raw output stays one click away instead of filling the panel.
+- **Timing:** Each call shows how long it took, read from the result's own timestamps. Anything over 10s is marked red and gets a 🐢 badge on the graph so bottlenecks are visible without opening a thing.
+- **Errors surfaced:** Failed calls turn red, in-flight calls show amber and dashed, and an **⚠ Issues** button cycles straight through every failure in the trace. Failure is detected from how each tool actually reports trouble (non-zero exit codes, permission denials, no-op edits) rather than keyword-matching the output.
 - **Truncation honesty:** Content abbreviated in the compact log is flagged, with a one-click "Load full version" that pulls from `transcript_full.jsonl`.
 
 **Navigating**
-- **Timeline scrubber:** A checkpoint pin per user request — click to jump, hover for the prompt text. A blue band shows your current position in the overall trace.
+- **Goal bar:** A sticky strip under the toolbar that always names the request you're looking at — "Request 12 of 56" plus what the agent set out to do — with ‹ › steppers and a dropdown to jump to any request by name.
+- **Timeline scrubber:** A checkpoint pin per user request — click to jump, hover for the prompt and its timestamp. A blue band shows your current position in the overall trace.
+- **Long gaps marked:** When a session resumes hours or days later, the graph says so instead of running two different days together.
 - **Search:** Filter by tool name, prompt or thought text; non-matches dim, and Enter steps through hits.
+- **Keyboard shortcuts:** `←`/`→` move between requests, `/` focuses search, `Esc` clears it, `n` jumps to the next issue, `o` opens the overview.
 - **Real-Time Auto-Follow:** Pans to track the newest nodes as the agent works, and backs off automatically when you scroll into history.
 - **Jump to Start / End** plus zoom controls with strict Y-axis locking.
 
 **Views**
+- **Session overview:** With nothing selected, the side panel reports the whole run — requests, tool calls, failures, slow calls, total working time, elapsed span, and which tools did the heavy lifting.
+- **Copy request:** Exports the current request as markdown — what was asked, what the agent planned, and every tool call with its outcome — ready to paste into a doc or a review.
 - **Simple View:** Hides empty router nodes and system/context noise for a clean narrative — ideal for demos. Toggle off to inspect every model round-trip.
 - **Macro Summaries:** Contextual grouping boxes summarizing large blocks of related work.
 - **Preferences persist** across reloads, and colours follow the host's light or dark theme.

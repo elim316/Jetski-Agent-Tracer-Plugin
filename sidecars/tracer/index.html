@@ -146,6 +146,13 @@
                 <button id="btnJumpStart" class="tb-btn" title="Jump to the beginning of the trace">Start</button>
                 <button id="btnJumpEnd" class="tb-btn" title="Jump to the latest step">End</button>
             </div>
+
+            <div class="tb-sep"></div>
+
+            <div class="tb-group">
+                <button id="btnOverview" class="tb-btn ghost" title="Show the session summary">Overview</button>
+                <button id="btnExport" class="tb-btn ghost" title="Copy this request's activity as markdown">Copy request</button>
+            </div>
         </div>
     </div>
 
@@ -292,7 +299,8 @@
             });
             dot.addEventListener('mouseenter', () => {
                 const r = dot.getBoundingClientRect();
-                checkpointTip.textContent = '#' + (i + 1) + ' · ' + cp.label;
+                const stamp = formatStamp(cp.time);
+                checkpointTip.textContent = '#' + (i + 1) + (stamp ? ' · ' + stamp : '') + ' · ' + cp.label;
                 checkpointTip.style.left = (r.left + r.width / 2) + 'px';
                 checkpointTip.style.bottom = (window.innerHeight - r.top + 10) + 'px';
                 checkpointTip.classList.add('show');
@@ -605,7 +613,14 @@
             let updates = [];
             nodes.forEach(n => {
                 if (n.id.startsWith('user_')) updates.push({ id: n.id, y: y_user_scaled });
-                else if (n.id.includes('_tool_') && !n.label.includes('🤖 SUBAGENT')) updates.push({ id: n.id, y: y_tool_scaled });
+                // A subagent belongs in the agent lane. Detect it from the call
+                // itself: a failed or running node relabels away from "SUBAGENT",
+                // so sniffing the label would drop it into the tool lane.
+                else if (n.id.includes('_tool_')) {
+                    const d = rawDataMap[n.id];
+                    const sub = d && d.tool && d.tool.name === 'invoke_subagent';
+                    if (!sub) updates.push({ id: n.id, y: y_tool_scaled });
+                }
             });
             nodes.update(updates);
             network.moveTo({ scale: currentZoom, animation: false });
@@ -901,6 +916,7 @@
         }
         
         let turns = []; let currentTurn = null; let requestNum = 0;
+        let lastStepTime = null;
         let Y_USER = BASE_Y_USER / currentZoom;  
         let Y_AGENT = 0;    
         let Y_TOOL = BASE_Y_TOOL / currentZoom;   
@@ -911,15 +927,40 @@
         }
         
         data.forEach(function(step, index) {
+            // Tracked for every step, before any early return, so the gap measured
+            // at the next request reflects the real silence and not just the last
+            // step that happened to be drawn.
+            const stepTime = step.created_at ? Date.parse(step.created_at) : null;
+            const gapMs = (stepTime && lastStepTime) ? stepTime - lastStepTime : 0;
+            if (stepTime) lastStepTime = stepTime;
+
             if (step.type === 'USER_INPUT') {
                 if (currentTurn) turns.push(currentTurn);
+
+                // A trace can span weeks, but nodes sit shoulder to shoulder
+                // regardless. Make a long silence explicit instead of implying
+                // the agent carried straight on.
+                if (gapMs >= GAP_MS) {
+                    currentX += 220;
+                    let gId = 'gap_' + index;
+                    if (!nodes.get(gId)) {
+                        newNodes.push({ id: gId, label: '⏸ ' + formatGap(gapMs) + ' later', shape: 'box',
+                            color: { background: 'rgba(0,0,0,0.03)', border: '#BDC1C6' },
+                            font: { color: '#80868B', align: 'center', multi: false, size: 11 },
+                            x: currentX, y: Y_USER });
+                        if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: gId, arrows: 'to', dashes: [2, 4], color: { color: '#BDC1C6' } });
+                    }
+                    previousPlannerId = gId;
+                }
+
                 currentX += 300;
                 let uId = 'user_' + index;
                 const prompt = cleanUserText(step.content) || 'Initiating...';
                 // The request itself is the goal; the agent's restatement of it is
                 // secondary context, filled in by the first planner step below.
                 currentTurn = { minX: currentX, maxX: currentX, num: ++requestNum,
-                                request: prompt, intent: null, nodeId: uId };
+                                request: prompt, intent: null, nodeId: uId,
+                                time: step.created_at || null, tools: [] };
                 
                 if (!nodes.get(uId)) {
                     let summary = wrapText(truncate(prompt, 50), 30); 
@@ -929,7 +970,7 @@
                 }
                 previousPlannerId = uId;
                 // Register a jump target for the scrubber bar.
-                checkpoints.push({ id: uId, x: currentX, label: truncate(prompt, 140) });
+                checkpoints.push({ id: uId, x: currentX, label: truncate(prompt, 140), time: step.created_at || null });
             }
             else if (step.type === 'ERROR_MESSAGE') {
                 // Errors were previously dropped entirely. They must always be visible.
@@ -1027,7 +1068,7 @@
                             const resSteps = resultsFor[step.step_index];
                             const resultStep = resSteps && resSteps[tIdx] ? resSteps[tIdx] : null;
                             const resultText = resultStep ? (resultStep.content || '') : '';
-                            const failed = /^\s*(Error|Encountered error|Failed)\b/i.test(resultText);
+                            const failed = isFailure(resultText, tool.name);
                             const running = step.status === 'RUNNING' || (!resultStep && step.status !== 'DONE');
 
                             if (failed) {
@@ -1049,6 +1090,15 @@
                                 x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL });
                             rawDataMap[toolId] = { type: 'TOOL_CALL', step: step, tool: tool, result: resultText, resultStep: resultStep, failed: failed, running: running };
                             if (failed) issueNodes.push({ id: toolId, x: toolX });
+                            // Recorded on the turn so the overview and export can
+                            // report per-request activity without re-walking data.
+                            if (currentTurn) {
+                                currentTurn.tools.push({
+                                    name: tool.name, failed: failed, running: running,
+                                    ms: tTiming ? tTiming.ms : null,
+                                    summary: summarizeResult(resultText, tool.name, failed)
+                                });
+                            }
                             // Collapsed steps get a dotted edge to signal a skipped router round-trip.
                             if (anchorId) newEdges.push({ from: anchorId, to: toolId, arrows: 'to, from', color: { color: '#78909c' }, width: 2, dashes: collapse ? [2, 4] : false });
                         }
@@ -1087,6 +1137,9 @@
         renderGoalOptions();
         syncViewportUI();
         refreshIssueButton();
+        // The inspector is dead space until something is clicked; fill it with a
+        // session summary, and keep it fresh as new steps stream in.
+        if (!hasSelection) renderOverview();
         // Newly added nodes must inherit the active filter, not appear fully lit.
         if (searchTerm.trim()) applySearch();
     }
@@ -1149,6 +1202,62 @@
 
     // Anything past this is worth calling out visually as a bottleneck.
     const SLOW_MS = 10000;
+
+    // A silence longer than this between a step and the next request is worth
+    // marking. Traces here span weeks, so "later" is real context, not noise.
+    const GAP_MS = 6 * 60 * 60 * 1000;
+
+    function formatGap(ms) {
+        const days = Math.floor(ms / 86400000);
+        if (days >= 1) return days + (days === 1 ? ' day' : ' days');
+        return Math.round(ms / 3600000) + ' hours';
+    }
+
+    function formatStamp(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d)) return '';
+        return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    // Decides whether a tool call actually failed.
+    //
+    // Results never *begin* with "Error": the `Created At:` preamble comes first,
+    // and tools state trouble mid-text. A leading-keyword regex therefore matched
+    // zero of 402 real results while missing 11 non-zero exits — i.e. it reported
+    // a clean run every time. Match how each tool genuinely reports failure, and
+    // stay conservative: a bare mention of "error" is not enough, because it turns
+    // up constantly in file contents and search hits the agent is merely reading.
+    function isFailure(rawText, toolName) {
+        const text = stripTimingPreamble(rawText || '');
+        if (!text.trim()) return false;
+
+        // Runtime-level errors and cancellations are prefixed.
+        if (/^\s*(Error|Encountered error|Failed|Tool execution was canceled)\b/i.test(text)) return true;
+        if (/\bwas canceled with result\b/i.test(text)) return true;
+
+        if (toolName === 'run_command') {
+            // Everything after `Output:` is captured stdout, which routinely
+            // contains phrases like "exited with code 1" (build logs, test
+            // output, this tool's own traces). Only the status header above it
+            // describes *this* call, so read the code from there.
+            const head = text.split(/\nOutput:/)[0];
+            const m = head.match(/command exited with code\s*(-?\d+)/i);
+            if (m) return m[1] !== '0';
+            if (/\b(permission denied|read-only file system)\b/i.test(head)) return true;
+            return false;
+        }
+
+        // An edit whose target never matched leaves the file untouched. A
+        // successful edit echoes the diff, and that diff can itself contain the
+        // failure wording, so trust the success banner first.
+        if (toolName === 'replace_file_content') {
+            if (/following changes were made by the replace_file_content tool/i.test(text)) return false;
+            if (/did not appear in|no changes were made/i.test(text)) return true;
+        }
+
+        return false;
+    }
 
     // The `Created At:` / `Completed At:` lines are plumbing, not content.
     // Strip them so the displayed body starts with the actual output.
@@ -1275,7 +1384,181 @@
         return { headline: headline, stats: stats, body: text.trim() };
     }
 
+    // --- Session overview --------------------------------------------------
+    // The inspector sat empty until a node was clicked. A run summary is more
+    // useful there, and answers "what happened in this session?" for someone
+    // who isn't going to read the graph node by node.
+    let hasSelection = false;
+
+    function computeRunStats() {
+        const turns = window.graphTurns || [];
+        const steps = window.lastTranscript || [];
+        const stats = { requests: 0, steps: steps.length, tools: 0, failed: 0,
+                        slow: 0, running: 0, totalMs: 0, byTool: {}, first: null, last: null };
+
+        turns.forEach(t => {
+            if (t.num > 0) stats.requests++;
+            t.tools.forEach(tool => {
+                stats.tools++;
+                if (tool.failed) stats.failed++;
+                if (tool.running) stats.running++;
+                if (tool.ms) { stats.totalMs += tool.ms; if (tool.ms >= SLOW_MS) stats.slow++; }
+                stats.byTool[tool.name] = (stats.byTool[tool.name] || 0) + 1;
+            });
+        });
+
+        steps.forEach(s => {
+            if (!s.created_at) return;
+            const t = Date.parse(s.created_at);
+            if (isNaN(t)) return;
+            if (stats.first === null || t < stats.first) stats.first = t;
+            if (stats.last === null || t > stats.last) stats.last = t;
+        });
+        return stats;
+    }
+
+    function renderOverview() {
+        if (!inspectorEl) return;
+        hasSelection = false;
+        const s = computeRunStats();
+        if (!s.steps) return;
+
+        const tile = (label, value, accent) =>
+            '<div style="flex:1 1 44%; min-width:120px; background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-radius:8px; padding:12px;">' +
+            '<div style="font-size:20px; font-weight:700; color:' + (accent || 'var(--foreground,#202124)') + ';">' + value + '</div>' +
+            '<div style="font-size:11px; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted-foreground,#80868b); margin-top:2px;">' + label + '</div></div>';
+
+        let html = '<div id="inspector-title" style="color:#1967D2">📊 SESSION OVERVIEW</div>';
+
+        html += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">' +
+                tile('Requests', s.requests) +
+                tile('Tool calls', s.tools) +
+                tile('Failed', s.failed, s.failed ? '#D93025' : undefined) +
+                tile('Slow (>10s)', s.slow, s.slow ? '#F9AB00' : undefined) +
+                '</div>';
+
+        html += '<div class="inspector-section"><div class="inspector-label">Time</div>';
+        html += '<div style="font-size:13px; color:var(--foreground,#202124); line-height:1.8;">' +
+                '<div>Working time in tools: <strong>' + formatDuration(s.totalMs) + '</strong></div>';
+        if (s.first && s.last) {
+            html += '<div>Spans: <strong>' + formatStamp(new Date(s.first).toISOString()) +
+                    '</strong> → <strong>' + formatStamp(new Date(s.last).toISOString()) + '</strong></div>' +
+                    '<div style="color:var(--muted-foreground,#5f6368);">(' + formatGap(Math.max(s.last - s.first, 1)) + ' elapsed)</div>';
+        }
+        html += '</div></div>';
+
+        // Which tools dominate is the quickest read on what kind of work this was.
+        const ranked = Object.entries(s.byTool).sort((a, b) => b[1] - a[1]).slice(0, 6);
+        if (ranked.length) {
+            const max = ranked[0][1];
+            html += '<div class="inspector-section"><div class="inspector-label">Most used tools</div>';
+            ranked.forEach(([name, n]) => {
+                html += '<div style="margin-bottom:6px;">' +
+                        '<div style="display:flex; justify-content:space-between; font-size:12px; color:var(--foreground,#202124);">' +
+                        '<span>' + escapeHtml(name) + '</span><span style="color:var(--muted-foreground,#80868b);">' + n + '</span></div>' +
+                        '<div style="height:5px; background:var(--secondary,#e8eaed); border-radius:3px; overflow:hidden; margin-top:3px;">' +
+                        '<div style="height:100%; width:' + Math.round((n / max) * 100) + '%; background:#4285F4;"></div></div></div>';
+            });
+            html += '</div>';
+        }
+
+        html += '<div class="empty-state" style="margin-top:24px; font-size:13px;">Select any node to inspect it.</div>';
+        inspectorEl.innerHTML = html;
+    }
+    window.showOverview = renderOverview;
+
+    // Shared with the overview; renderInspector defines its own local copy.
+    function escapeHtml(unsafe) {
+        return unsafe ? unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                              .replace(/>/g, "&gt;").replace(/"/g, "&quot;") : '';
+    }
+
+    // --- Export ------------------------------------------------------------
+    // Turns the active request into markdown someone can paste into a doc or
+    // a message, which is the usual way this trace gets shared onward.
+    function requestAsMarkdown(turn) {
+        if (!turn) return '';
+        const lines = [];
+        lines.push('## Request ' + (turn.num > 0 ? turn.num : '(session start)'));
+        if (turn.time) lines.push('_' + formatStamp(turn.time) + '_');
+        lines.push('');
+        lines.push('**Asked:** ' + turn.request);
+        if (turn.intent) lines.push('**Agent\'s plan:** ' + turn.intent);
+        lines.push('');
+        if (turn.tools.length) {
+            lines.push('### What the agent did (' + turn.tools.length + ' tool calls)');
+            turn.tools.forEach(t => {
+                const mark = t.failed ? '❌' : (t.running ? '⏳' : '✅');
+                const dur = t.ms ? ' _(' + formatDuration(t.ms) + ')_' : '';
+                const what = t.summary ? t.summary.headline : '';
+                lines.push('- ' + mark + ' **' + t.name + '**' + dur + (what ? ' — ' + what : ''));
+            });
+            const failed = turn.tools.filter(t => t.failed).length;
+            if (failed) { lines.push(''); lines.push('> ' + failed + ' of these failed.'); }
+        } else {
+            lines.push('_No tool calls in this request._');
+        }
+        return lines.join('\n');
+    }
+
+    const btnExport = document.getElementById('btnExport');
+    if (btnExport) {
+        btnExport.addEventListener('click', async () => {
+            const md = requestAsMarkdown(activeGoalTurn);
+            if (!md) return;
+            const original = btnExport.textContent;
+            try {
+                await navigator.clipboard.writeText(md);
+                btnExport.textContent = 'Copied';
+            } catch (e) {
+                // Clipboard access can be blocked; make the failure visible
+                // rather than leaving the button looking like it worked.
+                console.error('Clipboard write failed:', e);
+                btnExport.textContent = 'Copy failed';
+            }
+            setTimeout(() => { btnExport.textContent = original; }, 1600);
+        });
+    }
+
+    const btnOverview = document.getElementById('btnOverview');
+    if (btnOverview) btnOverview.addEventListener('click', () => {
+        if (network) network.unselectAll();
+        renderOverview();
+    });
+
+    // --- Keyboard shortcuts --------------------------------------------------
+    // Reading a long trace is mostly repetitive navigation, so the common moves
+    // get keys. Anything typed into a field must still reach that field.
+    document.addEventListener('keydown', (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        const el = e.target;
+        const tag = el && el.tagName ? el.tagName.toLowerCase() : '';
+        const typing = tag === 'input' || tag === 'textarea' || tag === 'select' ||
+                       (el && el.isContentEditable);
+        if (typing) return;
+
+        switch (e.key) {
+            case 'ArrowLeft':  stepRequest(-1); e.preventDefault(); break;
+            case 'ArrowRight': stepRequest(1);  e.preventDefault(); break;
+            case '/':
+                if (searchBox) { searchBox.focus(); searchBox.select(); e.preventDefault(); }
+                break;
+            case 'Escape':
+                if (searchBox && searchBox.value) {
+                    searchBox.value = ''; searchTerm = ''; applySearch(); e.preventDefault();
+                }
+                break;
+            case 'n': case 'N':
+                if (btnNextIssue && !btnNextIssue.disabled) { btnNextIssue.click(); e.preventDefault(); }
+                break;
+            case 'o': case 'O':
+                if (btnOverview) { btnOverview.click(); e.preventDefault(); }
+                break;
+        }
+    });
+
     function renderInspector(data) {
+        hasSelection = true;
         if (!data) return;
         let text = '';
         const escapeHtmlRaw = (unsafe) => unsafe ? unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;") : '';
