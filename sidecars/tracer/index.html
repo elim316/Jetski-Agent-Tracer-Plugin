@@ -83,24 +83,30 @@
         .scrubber { height: 46px; flex-shrink: 0; background: var(--card, #fff); border-top: 1px solid var(--border, #dadce0); display: flex; align-items: center; padding: 0 20px; gap: 12px; box-sizing: border-box; }
         .scrubber-caption { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted-foreground, #80868b); white-space: nowrap; }
         .scrubber-track { position: relative; flex: 1; height: 6px; background: var(--secondary, #e8eaed); border-radius: 3px; cursor: pointer; }
-        .scrubber-view { position: absolute; top: 0; height: 100%; background: rgba(26,115,232,0.28); border-radius: 3px; pointer-events: none; transition: left 0.1s linear, width 0.1s linear; }
-        .checkpoint { position: absolute; top: 50%; width: 13px; height: 13px; margin-left: -6.5px; margin-top: -6.5px; background: #FFB74D; border: 2px solid var(--card, #fff); border-radius: 50%; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.15s ease, background 0.15s ease; z-index: 2; }
+        /* Sits taller than the track and above the pins (with pointer-events:none)
+           so dense pin clusters never bury the active viewport window. */
+        .scrubber-view { position: absolute; top: -6px; bottom: -6px; height: auto; background: rgba(26,115,232,0.16); border: 1.5px solid rgba(26,115,232,0.78); border-radius: 5px; pointer-events: none; z-index: 4; transition: left 0.1s linear, width 0.1s linear; box-sizing: border-box; }
+        .checkpoint { position: absolute; top: 50%; width: 13px; height: 13px; margin-left: -6.5px; margin-top: -6.5px; background: #FFB74D; border: 2px solid var(--card, #fff); border-radius: 50%; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.15s ease, background 0.15s ease; z-index: 2; box-sizing: border-box; }
         /* Invisible padding so tightly packed pins stay comfortably clickable. */
-        .checkpoint::before { content: ''; position: absolute; top: -9px; left: -7px; right: -7px; bottom: -9px; border-radius: 50%; }
-        .checkpoint:hover { transform: scale(1.45); background: #F57C00; z-index: 4; }
-        .checkpoint.active { background: #F57C00; box-shadow: 0 0 0 4px rgba(245,124,0,0.2); z-index: 3; }
-        .checkpoint-tip { position: absolute; bottom: 26px; transform: translateX(-50%); background: #202124; color: #fff; font-size: 11px; line-height: 1.4; padding: 7px 10px; border-radius: 6px; max-width: 280px; white-space: normal; pointer-events: none; opacity: 0; transition: opacity 0.15s ease; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+        .checkpoint::before { content: ''; position: absolute; top: -9px; left: -5px; right: -5px; bottom: -9px; border-radius: 50%; }
+        .checkpoint:hover { transform: scale(1.45); background: #F57C00; z-index: 6; }
+        .checkpoint.active { background: #F57C00; box-shadow: 0 0 0 3px rgba(245,124,0,0.25); z-index: 5; }
+        .checkpoint-tip { position: absolute; bottom: 26px; transform: translateX(-50%); background: #202124; color: #fff; font-size: 11px; line-height: 1.4; padding: 7px 10px; border-radius: 6px; max-width: 280px; white-space: normal; pointer-events: none; opacity: 0; transition: opacity 0.15s ease; z-index: 7; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
         .checkpoint-tip.show { opacity: 1; }
-        /* Failures get their own red ticks below the request pins, so where
-           things went wrong is visible at a glance across the whole trace. */
-        .issue-mark { position: absolute; top: 50%; width: 4px; height: 16px; margin-left: -2px; margin-top: -8px; background: #D93025; border-radius: 2px; cursor: pointer; z-index: 3; opacity: 0.85; transition: transform 0.15s ease, opacity 0.15s ease; }
-        .issue-mark::before { content: ''; position: absolute; top: -8px; left: -5px; right: -5px; bottom: -8px; }
-        .issue-mark:hover { transform: scaleX(2.2) scaleY(1.2); opacity: 1; z-index: 6; }
-        .issue-mark.active { background: #A50E0E; transform: scaleX(2.2) scaleY(1.25); opacity: 1; z-index: 6; }
-        /* Issue list rows in the inspector */
+        /* Failures ride along the upper rim above the request pins so they never
+           collide with or hide the orange request markers on the centre line. */
+        .issue-mark { position: absolute; top: -11px; width: 4px; height: 8px; margin-left: -2px; margin-top: 0; background: #D93025; border-radius: 2px 2px 0 0; cursor: pointer; z-index: 5; opacity: 0.9; transition: transform 0.15s ease, opacity 0.15s ease; }
+        .issue-mark::before { content: ''; position: absolute; top: -6px; left: -5px; right: -5px; bottom: -4px; }
+        .issue-mark:hover { transform: scaleX(2.2) scaleY(1.25); opacity: 1; z-index: 6; }
+        .issue-mark.active { background: #A50E0E; transform: scaleX(2.2) scaleY(1.3); opacity: 1; z-index: 6; }
+        /* Issue & bottleneck list rows in the inspector */
         .issue-row { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: var(--secondary, #f8f9fa); border: 1px solid var(--border, #eee); border-left: 3px solid #D93025; border-radius: 6px; padding: 9px 11px; margin-bottom: 7px; cursor: pointer; font: inherit; color: inherit; transition: background 0.12s ease, border-color 0.12s ease; }
         .issue-row:hover { background: rgba(217,48,37,0.07); border-color: #D93025; }
         .issue-row.active { background: rgba(217,48,37,0.12); border-color: #D93025; }
+        .issue-row.slow-row { border-left-color: #F9AB00; }
+        .issue-row.slow-row:hover { background: rgba(249,171,0,0.09); border-color: #F9AB00; }
+        .issue-row.slow-row.active { background: rgba(249,171,0,0.16); border-color: #F9AB00; }
+        .issue-row.slow-row .tool { color: #B06000; }
         .issue-row .req { flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted-foreground, #80868b); padding-top: 2px; min-width: 34px; }
         .issue-row .body { min-width: 0; flex: 1; }
         /* These are spans, so they need an explicit block to stack instead of
@@ -108,6 +114,8 @@
         .issue-row .tool { display: block; font-size: 12px; font-weight: 600; color: #A50E0E; }
         .issue-row .detail { display: block; font-size: 11px; color: var(--muted-foreground, #5f6368); line-height: 1.45; margin-top: 3px; word-break: break-word; }
         .issue-row .when { color: var(--muted-foreground, #9aa0a6); white-space: nowrap; }
+        .ov-tile-btn { cursor: pointer; transition: border-color 0.15s ease, transform 0.1s ease; }
+        .ov-tile-btn:hover { border-color: var(--primary, #1a73e8) !important; transform: translateY(-1px); }
         /* Keyboard shortcut legend */
         .key-row { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border, #f1f3f4); }
         .key-row:last-child { border-bottom: none; }
@@ -284,6 +292,8 @@
     // Errored/failed nodes, in timeline order, for the "next issue" jump button.
     let issueNodes = [];
     let issueCursor = -1;
+    // Slow tool calls (>= SLOW_MS), collected for the bottleneck browser.
+    let slowNodes = [];
     const scrubberTrack = document.getElementById('scrubberTrack');
     const scrubberView = document.getElementById('scrubberView');
     const scrubberCount = document.getElementById('scrubberCount');
@@ -313,7 +323,7 @@
         scrubberCount.textContent = checkpoints.length ? checkpoints.length + (checkpoints.length === 1 ? ' request' : ' requests') : '0';
 
         const b = graphBounds();
-        scrubberTrack.querySelectorAll('.checkpoint').forEach(el => el.remove());
+        scrubberTrack.querySelectorAll('.checkpoint, .issue-mark').forEach(el => el.remove());
         if (!b || b.maxX === b.minX) return;
         const span = b.maxX - b.minX;
 
@@ -324,6 +334,10 @@
         if (!trackW) return;
         const n = checkpoints.length;
         const MIN_GAP = Math.min(18, n > 1 ? trackW / (n + 1) : 18);
+        // Slim the pins down when many requests share the track so they stay
+        // distinct ticks instead of overlapping into a solid orange caterpillar.
+        const pinW = Math.max(5, Math.min(13, Math.floor(MIN_GAP * 0.78)));
+        const pinH = pinW >= 10 ? pinW : 11;
 
         let pos = checkpoints.map(cp => ((cp.x - b.minX) / span) * trackW);
         // Forward pass: push each pin right until it clears its left neighbour.
@@ -343,6 +357,14 @@
             const dot = document.createElement('div');
             dot.className = 'checkpoint';
             dot.style.left = pos[i] + 'px';
+            if (pinW < 13) {
+                dot.style.width = pinW + 'px';
+                dot.style.height = pinH + 'px';
+                dot.style.marginLeft = (-pinW / 2) + 'px';
+                dot.style.marginTop = (-pinH / 2) + 'px';
+                dot.style.borderRadius = pinW < 10 ? '4px' : '50%';
+                dot.style.borderWidth = pinW < 9 ? '1px' : '2px';
+            }
             dot.dataset.index = i;
             dot.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1060,6 +1082,18 @@
             .trim();
     }
 
+    // Same envelope stripping as cleanUserText, but keeps line breaks and
+    // markdown structure intact for the right-hand inspector.
+    function cleanUserMarkdown(str) {
+        if (!str) return '';
+        return str
+            .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, '')
+            .replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/g, '')
+            .replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/g, '')
+            .replace(/<\/?(?:USER_REQUEST|ADDITIONAL_METADATA|SYSTEM_MESSAGE|CONTEXT_SUMMARY)>/g, '')
+            .trim();
+    }
+
     function extractFallbackSummary(payload) {
         if (!payload) return "No payload metadata";
         if (payload.toolSummary) return payload.toolSummary;
@@ -1102,6 +1136,7 @@
         let previousPlannerId = null; let currentX = -200; 
         checkpoints = [];
         issueNodes = [];
+        slowNodes = [];
 
         // Tool *results* arrive as separate GENERIC steps immediately following the
         // planner step that issued the calls, in the same order. Pair them up front
@@ -1162,7 +1197,7 @@
                 // The request itself is the goal; the agent's restatement of it is
                 // secondary context, filled in by the first planner step below.
                 currentTurn = { minX: currentX, maxX: currentX, num: ++requestNum,
-                                request: prompt, intent: null, nodeId: uId,
+                                request: prompt, intent: null, reply: null, nodeId: uId,
                                 time: step.created_at || null, tools: [] };
                 
                 if (!nodes.get(uId)) {
@@ -1232,7 +1267,10 @@
                 // A router node with no thinking AND no output is pure overhead: the agent
                 // went straight to a tool. In Simple View we collapse it and wire its tools
                 // directly onto the preceding node so the chain stays continuous.
-                let isEmptyRouter = !step.thinking && !step.content && step.tool_calls && step.tool_calls.length > 0;
+                const hasTools = !!(step.tool_calls && step.tool_calls.length > 0);
+                const hasReply = !!(step.content && step.content.trim());
+                const isFinalReply = !hasTools && hasReply;
+                let isEmptyRouter = !step.thinking && !step.content && hasTools;
                 let collapse = simpleView && isEmptyRouter;
 
                 let pId = 'planner_' + index;
@@ -1240,22 +1278,35 @@
 
                 if (!collapse) {
                     currentX += 300;
-                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, num: 0, request: 'Session start', intent: null, nodeId: null };
+                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, num: 0, request: 'Session start', intent: null, reply: null, nodeId: null, tools: [] };
                     // The opening thought is the agent's plan for this request. Later
                     // thoughts are step-level detail, so don't let them overwrite it.
                     if (step.thinking && !currentTurn.intent) currentTurn.intent = extractMacroSummary(step.thinking);
+                    if (hasReply) currentTurn.reply = step.content.trim();
                     currentTurn.maxX = currentX;
 
                     if (!nodes.get(pId)) {
-                        let thoughtExtract = wrapText(truncate(step.thinking ? step.thinking : 'Formulating plan/tools...', 50), 30);
-                        newNodes.push({ id: pId, label: '🧠 MAIN AGENT (ROUTER)\n' + thoughtExtract, shape: 'box', color: { background: '#F3E5F5', border: '#BA68C8' }, font: { color: '#4A148C', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                        if (isFinalReply) {
+                            const cleanReply = step.content.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
+                            const replyExtract = wrapText(truncate(cleanReply, 54), 30);
+                            newNodes.push({
+                                id: pId, label: '💬 AGENT REPLY\n' + replyExtract, shape: 'box',
+                                color: { background: '#E6F4EA', border: '#34A853' },
+                                font: { color: '#137333', align: 'left', multi: false },
+                                x: currentX, y: Y_AGENT
+                            });
+                            if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: { color: '#34A853' } });
+                        } else {
+                            let thoughtExtract = wrapText(truncate(step.thinking ? step.thinking : 'Formulating plan/tools...', 50), 30);
+                            newNodes.push({ id: pId, label: '🧠 MAIN AGENT (ROUTER)\n' + thoughtExtract, shape: 'box', color: { background: '#F3E5F5', border: '#BA68C8' }, font: { color: '#4A148C', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                            if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: {color: '#8E24AA'} });
+                        }
                         rawDataMap[pId] = step;
-                        if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: {color: '#8E24AA'} });
                     }
                     previousPlannerId = pId;
                     anchorId = pId;
                 } else {
-                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, summary: "Analyzing..." };
+                    if (!currentTurn) currentTurn = { minX: currentX, maxX: currentX, summary: "Analyzing...", tools: [] };
                 }
 
                 if (step.tool_calls && step.tool_calls.length > 0) {
@@ -1299,6 +1350,15 @@
 
                         // Transcript schemas differ: newer logs use `args`, older use `arguments`
                         let targs = tool.arguments || tool.args || {};
+                        if (tTiming && tTiming.ms >= SLOW_MS) {
+                            slowNodes.push({
+                                id: toolId, x: toolX, tool: tool.name,
+                                ms: tTiming.ms,
+                                requestNum: currentTurn ? currentTurn.num : 0,
+                                detail: targs.toolSummary || (tSummaryObj && tSummaryObj.headline) || extractFallbackSummary(targs),
+                                time: step.created_at || null
+                            });
+                        }
                         let tSummary = wrapText(truncate(targs.toolSummary ? targs.toolSummary : extractFallbackSummary(targs), 45), 28);
                         let title = isSubagent ? '🤖 SUBAGENT: ' + (targs.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
                         let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' };
@@ -1566,8 +1626,27 @@
                     break;
                 }
                 case 'grep_search': {
-                    const n = (text.match(/"LineNumber"/g) || []).length;
-                    headline = n ? 'Found ' + n + ' matching line' + (n === 1 ? '' : 's') + '.' : 'No matches found.';
+                    const lineHits = (text.match(/"LineNumber"/g) || []).length;
+                    const fileSet = new Set((text.match(/"(?:Filename|File)"\s*:\s*"([^"]+)"/g) || []));
+                    const fileHits = fileSet.size;
+                    if (lineHits > 0) {
+                        headline = 'Found ' + lineHits + ' matching line' + (lineHits === 1 ? '' : 's') +
+                                   (fileHits ? ' across ' + fileHits + ' file' + (fileHits === 1 ? '' : 's') : '') + '.';
+                    } else if (fileHits > 0) {
+                        headline = 'Found matches in ' + fileHits + ' file' + (fileHits === 1 ? '' : 's') + '.';
+                    } else {
+                        headline = 'No matches found.';
+                    }
+                    break;
+                }
+                case 'ask_question': {
+                    const ans = grab(/A1:\s*(.+)/);
+                    headline = ans ? 'User answered: “' + truncate(ans.trim(), 120) + '”'
+                                   : 'Asked the user a clarifying question.';
+                    break;
+                }
+                case 'invoke_subagent': {
+                    headline = 'Delegated task to a subagent and received its report.';
                     break;
                 }
                 case 'find_by_name': {
@@ -1653,18 +1732,20 @@
         const s = computeRunStats();
         if (!s.steps) return;
 
-        const tile = (label, value, accent) =>
-            '<div style="flex:1 1 44%; min-width:120px; background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-radius:8px; padding:12px;">' +
+        const tile = (label, value, accent, idAttr, hint) =>
+            '<div' + (idAttr ? ' id="' + idAttr + '" class="ov-tile-btn" title="' + (hint || '') + '"' : '') +
+            ' style="flex:1 1 44%; min-width:120px; background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-radius:8px; padding:12px;">' +
             '<div style="font-size:20px; font-weight:700; color:' + (accent || 'var(--foreground,#202124)') + ';">' + value + '</div>' +
-            '<div style="font-size:11px; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted-foreground,#80868b); margin-top:2px;">' + label + '</div></div>';
+            '<div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted-foreground,#80868b); margin-top:2px;">' +
+            '<span>' + label + '</span>' + (idAttr ? '<span style="font-size:10px; color:var(--primary,#1a73e8); text-transform:none; font-weight:600;">View →</span>' : '') + '</div></div>';
 
         let html = '<div id="inspector-title" style="color:#1967D2">📊 SESSION OVERVIEW</div>';
 
         html += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">' +
                 tile('Requests', s.requests) +
                 tile('Tool calls', s.tools) +
-                tile('Failed', s.failed, s.failed ? '#D93025' : undefined) +
-                tile('Slow (>10s)', s.slow, s.slow ? '#F9AB00' : undefined) +
+                tile('Failed', s.failed, s.failed ? '#D93025' : undefined, s.failed ? 'ovTileFailed' : null, 'Browse failed steps') +
+                tile('Slow (>10s)', s.slow, s.slow ? '#F9AB00' : undefined, s.slow ? 'ovTileSlow' : null, 'Browse slowest tool calls') +
                 '</div>';
 
         html += '<div class="inspector-section"><div class="inspector-label">Time</div>';
@@ -1692,10 +1773,61 @@
             html += '</div>';
         }
 
-        html += '<div class="empty-state" style="margin-top:24px; font-size:13px;">Select any node to inspect it.</div>';
+        html += '<div class="empty-state" style="margin-top:24px; font-size:13px;">Select any node to inspect it, or click Failed / Slow above to drill in.</div>';
         inspectorEl.innerHTML = html;
+
+        const tileFailed = document.getElementById('ovTileFailed');
+        if (tileFailed) tileFailed.addEventListener('click', () => renderIssuesPanel());
+        const tileSlow = document.getElementById('ovTileSlow');
+        if (tileSlow) tileSlow.addEventListener('click', () => renderSlowPanel());
     }
     window.showOverview = renderOverview;
+
+    // --- Slowest calls (bottleneck browser) ----------------------------------
+    function renderSlowPanel() {
+        if (!inspectorEl) return;
+        hasSelection = true;
+
+        let html = '<div id="inspector-title" style="color:#B06000">🐢 SLOWEST TOOL CALLS</div>';
+        if (!slowNodes.length) {
+            html += '<div class="empty-state" style="font-size:13px;">No tool calls took 10s or longer in this trace.</div>';
+            inspectorEl.innerHTML = html;
+            return;
+        }
+
+        const sorted = slowNodes.slice().sort((a, b) => b.ms - a.ms);
+        html += '<div class="inspector-section"><div class="inspector-label">' +
+                sorted.length + ' call' + (sorted.length === 1 ? '' : 's') +
+                ' ≥ 10s (ranked slowest first) — click one to jump to it</div>';
+        sorted.forEach((item, i) => {
+            html += '<button class="issue-row slow-row" data-slow="' + i + '">' +
+                    '<span class="req">' + formatDuration(item.ms) + '</span>' +
+                    '<span class="body"><span class="tool">' + escapeHtml(item.tool) +
+                    (item.requestNum ? ' <span class="when" style="font-weight:400;">· Req #' + item.requestNum + '</span>' : '') +
+                    '</span>' +
+                    '<span class="detail">' + escapeHtml(item.detail || '') +
+                    (item.time ? ' <span class="when">· ' + formatStamp(item.time) + '</span>' : '') +
+                    '</span></span></button>';
+        });
+        html += '</div>';
+        inspectorEl.innerHTML = html;
+
+        inspectorEl.querySelectorAll('.slow-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const i = parseInt(row.dataset.slow, 10);
+                const target = sorted[i];
+                if (!target) return;
+                jumpToX(target.x);
+                inspectorEl.querySelectorAll('.slow-row').forEach(r =>
+                    r.classList.toggle('active', r === row));
+            });
+            row.addEventListener('dblclick', () => {
+                const target = sorted[parseInt(row.dataset.slow, 10)];
+                if (target && rawDataMap[target.id]) renderInspector(rawDataMap[target.id]);
+            });
+        });
+    }
+    window.showSlow = renderSlowPanel;
 
     // --- Issue list ----------------------------------------------------------
     // Cycling one button meant you could only ever see a single failure, with
@@ -1757,6 +1889,7 @@
         { keys: ['⇧', 'Enter'],    what: 'Previous search match', join: '+' },
         { keys: ['Esc'],           what: 'Clear the search' },
         { keys: ['n'],             what: 'Next failure' },
+        { keys: ['s'],             what: 'Slowest tool calls (≥10s)' },
         { keys: ['o'],             what: 'Session overview' },
         { keys: ['?'],             what: 'This list' },
     ];
@@ -1809,6 +1942,11 @@
             if (failed) { lines.push(''); lines.push('> ' + failed + ' of these failed.'); }
         } else {
             lines.push('_No tool calls in this request._');
+        }
+        if (turn.reply) {
+            lines.push('');
+            lines.push('### Answer');
+            lines.push(turn.reply);
         }
         return lines.join('\n');
     }
@@ -1913,6 +2051,9 @@
             case 'n': case 'N':
                 if (issueNodes.length) { goToIssue(issueCursor + 1); e.preventDefault(); }
                 break;
+            case 's': case 'S':
+                renderSlowPanel(); e.preventDefault();
+                break;
             case 'o': case 'O':
                 if (btnOverview) { btnOverview.click(); e.preventDefault(); }
                 break;
@@ -1941,20 +2082,33 @@
         
         if (data.type === 'USER_INPUT') {
             titleColor = '#F57C00'; icon = '👤 ';
-            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' USER ACTION</div>' +
-                     '<div class="inspector-section"><div class="inspector-label">Prompt Content</div>' +
-                     '<div class="markdown-body">' + renderMarkdown(data.content) + '</div>' +
+            const rawPrompt = data.content || '';
+            const cleanPrompt = cleanUserMarkdown(rawPrompt) || cleanUserText(rawPrompt) || rawPrompt;
+            const imgMatch = rawPrompt.match(/The user has uploaded (\d+) image\(s\):([^\n<]+)/);
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' USER REQUEST</div>';
+            if (imgMatch) {
+                text += '<div style="margin-bottom:12px;"><span style="display:inline-block; background:#FFF3E0; border:1px solid #FFB74D; color:#E65100; font-size:11px; font-weight:600; padding:4px 9px; border-radius:12px;">📎 Attached ' + escapeHtmlRaw(imgMatch[1]) + ' image' + (imgMatch[1] === '1' ? '' : 's') + '</span></div>';
+            }
+            text += '<div class="inspector-section"><div class="inspector-label">What the user asked</div>' +
+                     '<div class="markdown-body" style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid '+titleColor+'; border-radius:6px; padding:14px;">' + renderMarkdown(cleanPrompt) + '</div>' +
                      truncationNotice(data) + '</div>';
+            if (cleanPrompt !== rawPrompt.trim()) {
+                text += '<details style="margin-top:10px;"><summary style="cursor:pointer; font-size:11px; font-weight:600; color:var(--muted-foreground,#5f6368); text-transform:uppercase; letter-spacing:0.5px;">Raw prompt envelope</summary>' +
+                        '<pre style="margin-top:8px; max-height:260px; overflow-y:auto;">' + escapeHtmlRaw(rawPrompt) + '</pre></details>';
+            }
         } else if (data.type === 'PLANNER_RESPONSE') {
-            titleColor = '#8E24AA'; icon = '🧠 ';
-            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' MAIN AGENT (ROUTER)</div>';
+            const isFinalReply = (!data.tool_calls || data.tool_calls.length === 0) && !!(data.content && data.content.trim());
+            titleColor = isFinalReply ? '#137333' : '#8E24AA';
+            icon = isFinalReply ? '💬 ' : '🧠 ';
+            text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + (isFinalReply ? ' AGENT REPLY' : ' MAIN AGENT (ROUTER)') + '</div>';
 
             const stripMd = (s) => s.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
             const firstSentences = (s, n) => stripMd(s).split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, n).join(' ');
 
             // Always lead with a plain-English gist so non-technical readers get value.
             let gist = '';
-            if (data.thinking) gist = firstSentences(data.thinking, 2);
+            if (isFinalReply && data.content) gist = firstSentences(data.content, 2);
+            else if (data.thinking) gist = firstSentences(data.thinking, 2);
             else if (data.content) gist = firstSentences(data.content, 2);
 
             let actionList = '';
