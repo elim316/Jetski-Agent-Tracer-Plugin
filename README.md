@@ -49,8 +49,35 @@ Because this is packaged as a native Jetski UI Plugin, installation is seamless:
 4. Click the toggle switch to turn it **ON**. Jetski will automatically integrate it.
 5. In any active conversation, click the **+ (Extensions)** button securely tucked in the chat header, and open **Agent Tracer**!
 
-## 🧪 Architecture
+## ⚙️ How It Works
 
-*   **Frontend**: Native HTML/JS heavily extending `vis-network` (Vis.js) to enforce hierarchical physics constraints and programmatic camera movement. Uses `marked.js` to render live agent thought streams.
-*   **Bridge**: Uses the native Jetski `preload.js` bridge structure to auto-detect its active host conversation dynamically. Allows developers to swap active IDE chat tabs while seamlessly switching the graphed context.
-*   **Backend**: Python local server polling dynamic JSONL workspace transcripts.
+Every time an agent takes a step in Jetski, the runtime appends a JSON record to the conversation's local log (`~/.gemini/jetski/brain/<conversation-id>/.system_generated/logs/transcript.jsonl`). Raw transcripts can run to thousands of lines of nested JSON and tool outputs — Agent Tracer turns that stream into a readable, three-lane visual story in real time:
+
+```mermaid
+flowchart LR
+    A["Jetski Runtime\n(transcript.jsonl & transcript_full.jsonl)"] -->|"Incremental tail poll\n(?since=step_index)"| B["Python Sidecar Server\n(server.py)"]
+    B -->|"Delta JSON steps\nevery 1.5s"| C["Translation & Pairing Engine\n(index.html)"]
+    C --> D["3-Lane Swimlane Graph\n(Vis.js Canvas)"]
+    C --> E["Plain-English Inspector\n& Bottleneck/Failure Browsers"]
+```
+
+### 1. Context Discovery (`preload.js` Bridge)
+When you open the Agent Tracer panel or switch chat tabs in Jetski, the injected `/preload.js` bridge exposes `window.sidecar.conversationId`. The frontend detects tab switches automatically (`1s` watcher) and resets the canvas to follow whichever conversation you are looking at.
+
+### 2. Incremental Tail Polling (`server.py`)
+Rather than re-reading and shipping megabytes of log data on every tick, the frontend tracks the highest `step_index` it has already seen and polls `GET /api/transcript?conversationId=<id>&since=<last_step_index>` every `1.5s`:
+- **`transcript.jsonl` (Compact stream):** Used for fast real-time polling.
+- **`transcript_full.jsonl` (On-demand full payload):** When the compact log abbreviates a large field (`truncated_fields`), clicking **Load full version** in the inspector calls `GET /api/step_full?conversationId=<id>&step=<index>` to fetch only that single untruncated record.
+
+### 3. Pairing & Plain-English Translation (`index.html`)
+In the raw transcript, a tool call and its output are stored as **separate events**: the model emits a `PLANNER_RESPONSE` containing `tool_calls[]`, and the runtime later appends one or more `GENERIC` steps containing the raw stdout/result text. On each update pass, the frontend:
+1. **Pairs calls with results:** Matches each `tool_calls[i]` on a `PLANNER_RESPONSE` with its corresponding `GENERIC` result step so every tool node displays both what was requested and what came back.
+2. **Computes real durations:** Parses the `Created At:` and `Completed At:` headers inside tool outputs (falling back to step timestamps) to measure wall-clock execution time and flag calls `≥ 10s` (`🐢`).
+3. **Detects tool-specific failures:** Inspects exit codes (`The command exited with code N`), permission errors, and `replace_file_content` error banners (`isFailure()`) instead of naive keyword matching that would false-positive on source code containing the word `"error"`.
+4. **Distils plain-English headlines:** Runs `summarizeResult()` and `cleanUserMarkdown()` to strip internal XML wrappers (`<ADDITIONAL_METADATA>`, `<CONTEXT_SUMMARY>`) and summarize raw tool dumps into single-sentence outcomes (`"Read lines 1–130 of server.py"`, `"Found 2 matching lines across 2 files"`).
+
+### 4. Locked-Lane Graph Layout (`Vis.js`)
+Nodes are placed onto three fixed horizontal swimlanes whose vertical spacing adapts dynamically to the sidecar window height (`laneOffsetFor(height)`):
+- **Top lane (`Y_USER`):** User prompts (`👤 USER REQUEST`), long-silence gap markers (`⏸ 14 hours later`), and system notices.
+- **Middle lane (`Y_AGENT`):** Deliberation/routing steps (`🧠 MAIN AGENT (ROUTER)` in purple), final user-facing answers (`💬 AGENT REPLY` in emerald green), subagent delegations (`🤖 SUBAGENT`), context checkpoints, and errors.
+- **Bottom lane (`Y_TOOL`):** Individual tool executions (`🔧 TOOL`, `⏳ RUNNING`, `⛔ FAILED`), with translucent blue turn boxes grouping all activity that belongs to the same user request.
