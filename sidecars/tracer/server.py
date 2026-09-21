@@ -12,14 +12,23 @@ class AgentTracerHandler(BaseHTTPRequestHandler):
         pass
 
     def _transcript_path(self, conv_id, full=False):
-        """Resolve a conversation's transcript file.
+        """Resolve a conversation's transcript file across Jetski and Antigravity.
 
         `transcript.jsonl` is the compact log (long fields abbreviated);
         `transcript_full.jsonl` carries the untruncated content.
         """
-        brain_dir = os.path.expanduser("~/.gemini/jetski/brain")
         name = "transcript_full.jsonl" if full else "transcript.jsonl"
-        return os.path.join(brain_dir, conv_id, ".system_generated/logs", name)
+        env_dir = os.environ.get("AGENT_TRACER_BRAIN_DIR")
+        candidates = [
+            *( [os.path.expanduser(env_dir)] if env_dir else [] ),
+            os.path.expanduser("~/.gemini/jetski/brain"),
+            os.path.expanduser("~/.gemini/antigravity/brain"),
+        ]
+        for brain_dir in candidates:
+            candidate = os.path.join(brain_dir, conv_id, ".system_generated/logs", name)
+            if os.path.exists(candidate):
+                return candidate
+        return os.path.join(candidates[0], conv_id, ".system_generated/logs", name)
 
     def _send_json(self, payload):
         body = json.dumps(payload).encode("utf-8")
