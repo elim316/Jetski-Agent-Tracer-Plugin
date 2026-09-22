@@ -104,7 +104,7 @@ flowchart LR
 - **Copy request:** Exports the current request to the clipboard as markdown — what was asked, the agent's plan, every tool call with its duration and outcome, and the agent's final **Answer** — ready to paste into a doc or review.
 - **Simple View:** Hides empty router nodes and system/context noise for a clean narrative — ideal for demos. Toggle off to inspect every model round-trip.
 - **Macro Summaries:** Contextual grouping boxes summarizing each request turn.
-- **Preferences persist** across reloads, and colours follow the host's light or dark theme.
+- **Dark & Light Mode toggle (`🌙 Dark` / `☀️ Light` or `d`):** Switch the entire graph canvas, node palette, swimlanes, scrubber, goal bar, and inspector between Dark Mode and Light Mode with one click; preferences persist across reloads in `localStorage`.
 
 ---
 
@@ -121,6 +121,7 @@ Press `?` (or click `⌨` in the top toolbar) at any time to open the in-app sho
 | <kbd>n</kbd> | Jump to the **next failed step** on the graph |
 | <kbd>s</kbd> | Open the **🐢 Slowest Tool Calls (`≥ 10s`)** panel |
 | <kbd>o</kbd> | Return to the **📊 Session Overview** panel |
+| <kbd>d</kbd> | Toggle **🌙 Dark / ☀️ Light Mode** |
 | <kbd>?</kbd> | Open the **⌨ Keyboard Shortcuts** legend |
 
 ---

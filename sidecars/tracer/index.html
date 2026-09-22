@@ -5,6 +5,42 @@
     <title>Agent Tracer (Strict Timeline)</title>
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
+        html[data-theme="dark"], html[data-theme="dark"] body {
+            --background: #0f1117 !important;
+            --foreground: #e8eaed !important;
+            --card: #181b23 !important;
+            --secondary: #222631 !important;
+            --border: #2e3340 !important;
+            --muted-foreground: #9aa0a6 !important;
+            --primary: #8ab4f8 !important;
+            color-scheme: dark;
+        }
+        html[data-theme="light"], html[data-theme="light"] body {
+            --background: #f8f9fa !important;
+            --foreground: #202124 !important;
+            --card: #ffffff !important;
+            --secondary: #f1f3f4 !important;
+            --border: #dadce0 !important;
+            --muted-foreground: #5f6368 !important;
+            --primary: #1a73e8 !important;
+            color-scheme: light;
+        }
+        html[data-theme="dark"] .swimlane-row-bg {
+            background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.015) 10px, rgba(255,255,255,0.015) 20px);
+        }
+        html[data-theme="dark"] .goalbar-step,
+        html[data-theme="dark"] #goalBarSelect {
+            color: #8ab4f8;
+            background: rgba(138,180,248,0.16);
+        }
+        html[data-theme="dark"] #goalBarSelect option {
+            background: #181b23;
+            color: #e8eaed;
+        }
+        html[data-theme="dark"] .issue-row .tool { color: #f87171; }
+        html[data-theme="dark"] .issue-row.slow-row .tool { color: #fbbf24; }
+        html[data-theme="dark"] .markdown-body code { background: rgba(255,255,255,0.1); }
+
         body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; height: 100vh; overflow: hidden; background: var(--background, #f8f9fa); color: var(--foreground, #202124); }
         
         #left { width: 68%; min-width: 0; border-right: 1px solid var(--border, #dadce0); box-sizing: border-box; background: var(--background, #f8f9fa); display: flex; flex-direction: column; }
@@ -188,6 +224,7 @@
             <div class="tb-group">
                 <button id="btnOverview" class="tb-btn ghost" title="Show the session summary">Overview</button>
                 <button id="btnExport" class="tb-btn ghost" title="Copy this request's activity as markdown">Copy request</button>
+                <button id="btnTheme" class="tb-btn ghost" title="Toggle dark / light mode (d)">🌙 Dark</button>
                 <button id="btnKeys" class="tb-btn ghost" title="Keyboard shortcuts (?)">⌨</button>
             </div>
         </div>
@@ -640,6 +677,77 @@
         if (window.lastTranscript) updateGraph(window.lastTranscript);
     }
 
+    // --- Dark / Light Mode Theme Toggle ------------------------------------
+    let isDarkMode = prefs.darkMode !== undefined
+        ? !!prefs.darkMode
+        : (localStorage.getItem('tracer_theme') === 'dark');
+    const btnTheme = document.getElementById('btnTheme');
+
+    function nodePalette() {
+        if (isDarkMode) {
+            return {
+                start:      { bg: '#0f2e2b', border: '#2dd4bf', font: '#5eead4' },
+                gap:        { bg: 'rgba(255,255,255,0.04)', border: '#475569', font: '#94a3b8', edge: '#475569' },
+                user:       { bg: '#33200d', border: '#f59e0b', font: '#fbbf24', edge: '#f59e0b' },
+                error:      { bg: '#381518', border: '#ef4444', font: '#fca5a5', edge: '#ef4444' },
+                checkpoint: { bg: '#1e2433', border: '#64748b', font: '#cbd5e1', edge: '#64748b' },
+                system:     { bg: '#191e2b', border: '#475569', font: '#94a3b8', edge: '#475569' },
+                reply:      { bg: '#0f291e', border: '#34d399', font: '#6ee7b7', edge: '#34d399' },
+                router:     { bg: '#281836', border: '#c084fc', font: '#e9d5ff', edge: '#a855f7' },
+                subagent:   { bg: '#1a213d', border: '#818cf8', font: '#c7d2fe' },
+                tool:       { bg: '#0e2933', border: '#22d3ee', font: '#a5f3fc' },
+                running:    { bg: '#33260d', border: '#fbbf24', font: '#fde68a' },
+                toolEdge:   '#64748b'
+            };
+        }
+        return {
+            start:      { bg: '#e0f2f1', border: '#00897b', font: '#00897b' },
+            gap:        { bg: 'rgba(0,0,0,0.03)', border: '#BDC1C6', font: '#80868B', edge: '#BDC1C6' },
+            user:       { bg: '#FFF3E0', border: '#FFB74D', font: '#E65100', edge: '#F57C00' },
+            error:      { bg: '#FCE8E6', border: '#D93025', font: '#A50E0E', edge: '#D93025' },
+            checkpoint: { bg: '#E8EAED', border: '#9AA0A6', font: '#3C4043', edge: '#9AA0A6' },
+            system:     { bg: '#F1F3F4', border: '#BDC1C6', font: '#5F6368', edge: '#BDC1C6' },
+            reply:      { bg: '#E6F4EA', border: '#34A853', font: '#137333', edge: '#34A853' },
+            router:     { bg: '#F3E5F5', border: '#BA68C8', font: '#4A148C', edge: '#8E24AA' },
+            subagent:   { bg: '#E8EAF6', border: '#7986CB', font: '#1A237E' },
+            tool:       { bg: '#E0F7FA', border: '#4DD0E1', font: '#006064' },
+            running:    { bg: '#FEF7E0', border: '#F9AB00', font: '#996C00' },
+            toolEdge:   '#78909c'
+        };
+    }
+
+    function applyTheme(dark, shouldRebuild) {
+        isDarkMode = !!dark;
+        document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+        savePref('darkMode', isDarkMode);
+        try { localStorage.setItem('tracer_theme', isDarkMode ? 'dark' : 'light'); } catch (e) {}
+        if (btnTheme) {
+            btnTheme.textContent = isDarkMode ? '☀️ Light' : '🌙 Dark';
+            btnTheme.title = isDarkMode ? 'Switch to light mode (d)' : 'Switch to dark mode (d)';
+        }
+        if (shouldRebuild && network) {
+            const pos = network.getViewPosition();
+            const scale = network.getScale();
+            const sel = network.getSelectedNodes ? network.getSelectedNodes() : [];
+            nodes.clear();
+            edges.clear();
+            rawDataMap = {};
+            if (window.lastTranscript) updateGraph(window.lastTranscript);
+            network.moveTo({ position: pos, scale: scale, animation: false });
+            if (sel && sel.length && rawDataMap[sel[0]]) {
+                if (network.selectNodes) network.selectNodes([sel[0]]);
+                renderInspector(rawDataMap[sel[0]]);
+            } else if (!hasSelection) {
+                renderOverview();
+            }
+        }
+    }
+
+    applyTheme(isDarkMode, false);
+    if (btnTheme) {
+        btnTheme.addEventListener('click', () => applyTheme(!isDarkMode, true));
+    }
+
     // --- Search / filter ---------------------------------------------------
     // Dims non-matching nodes rather than removing them, so the timeline shape
     // stays recognisable while you scan for a match.
@@ -1037,8 +1145,8 @@
                 let y = (BASE_Y_USER / currentZoom) - 100;
                 let height = Math.abs((BASE_Y_TOOL / currentZoom) - y) + 120;
                 
-                ctx.fillStyle = "rgba(66, 133, 244, 0.04)"; 
-                ctx.strokeStyle = "rgba(66, 133, 244, 0.3)";
+                ctx.fillStyle = isDarkMode ? "rgba(138, 180, 248, 0.06)" : "rgba(66, 133, 244, 0.04)"; 
+                ctx.strokeStyle = isDarkMode ? "rgba(138, 180, 248, 0.28)" : "rgba(66, 133, 244, 0.3)";
                 ctx.lineWidth = 1;
                 
                 ctx.beginPath();
@@ -1134,6 +1242,7 @@
     function updateGraph(data) {
         let newNodes = []; let newEdges = [];
         let previousPlannerId = null; let currentX = -200; 
+        const pal = nodePalette();
         checkpoints = [];
         issueNodes = [];
         slowNodes = [];
@@ -1160,7 +1269,7 @@
         let Y_TOOL = BASE_Y_TOOL / currentZoom;   
         
         if (data.length > 0 && !nodes.get('start')) {
-            newNodes.push({ id: 'start', label: 'START', shape: 'ellipse', color: { background: '#e0f2f1', border: '#00897b' }, font: { color: '#00897b', face: 'system-ui', size: 14 }, x: currentX, y: Y_AGENT });
+            newNodes.push({ id: 'start', label: 'START', shape: 'ellipse', color: { background: pal.start.bg, border: pal.start.border }, font: { color: pal.start.font, face: 'system-ui', size: 14 }, x: currentX, y: Y_AGENT });
             previousPlannerId = 'start';
         }
         
@@ -1183,10 +1292,10 @@
                     let gId = 'gap_' + index;
                     if (!nodes.get(gId)) {
                         newNodes.push({ id: gId, label: '⏸ ' + formatGap(gapMs) + ' later', shape: 'box',
-                            color: { background: 'rgba(0,0,0,0.03)', border: '#BDC1C6' },
-                            font: { color: '#80868B', align: 'center', multi: false, size: 11 },
+                            color: { background: pal.gap.bg, border: pal.gap.border },
+                            font: { color: pal.gap.font, align: 'center', multi: false, size: 11 },
                             x: currentX, y: Y_USER });
-                        if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: gId, arrows: 'to', dashes: [2, 4], color: { color: '#BDC1C6' } });
+                        if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: gId, arrows: 'to', dashes: [2, 4], color: { color: pal.gap.edge } });
                     }
                     previousPlannerId = gId;
                 }
@@ -1202,9 +1311,9 @@
                 
                 if (!nodes.get(uId)) {
                     let summary = wrapText(truncate(prompt, 50), 30); 
-                    newNodes.push({ id: uId, label: '👤 USER REQUEST\n' + summary, shape: 'box', color: { background: '#FFF3E0', border: '#FFB74D' }, font: { color: '#E65100', align: 'left', multi: false }, x: currentX, y: Y_USER });
+                    newNodes.push({ id: uId, label: '👤 USER REQUEST\n' + summary, shape: 'box', color: { background: pal.user.bg, border: pal.user.border }, font: { color: pal.user.font, align: 'left', multi: false }, x: currentX, y: Y_USER });
                     rawDataMap[uId] = step;
-                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: uId, arrows: 'to', dashes: true, color: {color: '#F57C00'} });
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: uId, arrows: 'to', dashes: true, color: {color: pal.user.edge} });
                 }
                 previousPlannerId = uId;
                 // Register a jump target for the scrubber bar.
@@ -1217,10 +1326,10 @@
                 if (!nodes.get(eId)) {
                     let summary = wrapText(truncate(step.content || 'Unknown error', 90), 30);
                     newNodes.push({ id: eId, label: '⛔ ERROR\n' + summary, shape: 'box',
-                        color: { background: '#FCE8E6', border: '#D93025' },
-                        font: { color: '#A50E0E', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                        color: { background: pal.error.bg, border: pal.error.border },
+                        font: { color: pal.error.font, align: 'left', multi: false }, x: currentX, y: Y_AGENT });
                     rawDataMap[eId] = step;
-                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: eId, arrows: 'to', color: { color: '#D93025' }, width: 3 });
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: eId, arrows: 'to', color: { color: pal.error.edge }, width: 3 });
                 }
                 previousPlannerId = eId;
                 issueNodes.push({
@@ -1237,10 +1346,10 @@
                 let cId = 'ckpt_' + index;
                 if (!nodes.get(cId)) {
                     newNodes.push({ id: cId, label: '🗜 CONTEXT CHECKPOINT\nEarlier history summarized', shape: 'box',
-                        color: { background: '#E8EAED', border: '#9AA0A6' },
-                        font: { color: '#3C4043', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                        color: { background: pal.checkpoint.bg, border: pal.checkpoint.border },
+                        font: { color: pal.checkpoint.font, align: 'left', multi: false }, x: currentX, y: Y_AGENT });
                     rawDataMap[cId] = step;
-                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: cId, arrows: 'to', dashes: [4, 4], color: { color: '#9AA0A6' } });
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: cId, arrows: 'to', dashes: [4, 4], color: { color: pal.checkpoint.edge } });
                 }
                 previousPlannerId = cId;
                 if (currentTurn) currentTurn.maxX = currentX;
@@ -1255,10 +1364,10 @@
                     let title = isEphemeral ? '💤 CONTEXT INJECTION' : '📋 SYSTEM NOTICE';
                     let summary = wrapText(truncate(step.content || '', 60), 30);
                     newNodes.push({ id: sId, label: title + '\n' + summary, shape: 'box',
-                        color: { background: '#F1F3F4', border: '#BDC1C6' },
-                        font: { color: '#5F6368', align: 'left', multi: false }, x: currentX, y: Y_USER });
+                        color: { background: pal.system.bg, border: pal.system.border },
+                        font: { color: pal.system.font, align: 'left', multi: false }, x: currentX, y: Y_USER });
                     rawDataMap[sId] = step;
-                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: sId, arrows: 'to', dashes: [2, 3], color: { color: '#BDC1C6' } });
+                    if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: sId, arrows: 'to', dashes: [2, 3], color: { color: pal.system.edge } });
                 }
                 previousPlannerId = sId;
                 if (currentTurn) currentTurn.maxX = currentX;
@@ -1291,15 +1400,15 @@
                             const replyExtract = wrapText(truncate(cleanReply, 54), 30);
                             newNodes.push({
                                 id: pId, label: '💬 AGENT REPLY\n' + replyExtract, shape: 'box',
-                                color: { background: '#E6F4EA', border: '#34A853' },
-                                font: { color: '#137333', align: 'left', multi: false },
+                                color: { background: pal.reply.bg, border: pal.reply.border },
+                                font: { color: pal.reply.font, align: 'left', multi: false },
                                 x: currentX, y: Y_AGENT
                             });
-                            if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: { color: '#34A853' } });
+                            if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: { color: pal.reply.edge } });
                         } else {
                             let thoughtExtract = wrapText(truncate(step.thinking ? step.thinking : 'Formulating plan/tools...', 50), 30);
-                            newNodes.push({ id: pId, label: '🧠 MAIN AGENT (ROUTER)\n' + thoughtExtract, shape: 'box', color: { background: '#F3E5F5', border: '#BA68C8' }, font: { color: '#4A148C', align: 'left', multi: false }, x: currentX, y: Y_AGENT });
-                            if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: {color: '#8E24AA'} });
+                            newNodes.push({ id: pId, label: '🧠 MAIN AGENT (ROUTER)\n' + thoughtExtract, shape: 'box', color: { background: pal.router.bg, border: pal.router.border }, font: { color: pal.router.font, align: 'left', multi: false }, x: currentX, y: Y_AGENT });
+                            if (previousPlannerId) newEdges.push({ from: previousPlannerId, to: pId, arrows: 'to', color: {color: pal.router.edge} });
                         }
                         rawDataMap[pId] = step;
                     }
@@ -1361,14 +1470,18 @@
                         }
                         let tSummary = wrapText(truncate(targs.toolSummary ? targs.toolSummary : extractFallbackSummary(targs), 45), 28);
                         let title = isSubagent ? '🤖 SUBAGENT: ' + (targs.TypeName||'Task') : '🔧 TOOL: ' + tool.name;
-                        let color = isSubagent ? { background: '#E8EAF6', border: '#7986CB' } : { background: '#E0F7FA', border: '#4DD0E1' };
+                        const basePal = isSubagent ? pal.subagent : pal.tool;
+                        let color = { background: basePal.bg, border: basePal.border };
+                        let fontColor = basePal.font;
 
                         if (failed) {
                             title = '⛔ FAILED: ' + tool.name;
-                            color = { background: '#FCE8E6', border: '#D93025' };
+                            color = { background: pal.error.bg, border: pal.error.border };
+                            fontColor = pal.error.font;
                         } else if (running) {
                             title = '⏳ RUNNING: ' + tool.name;
-                            color = { background: '#FEF7E0', border: '#F9AB00' };
+                            color = { background: pal.running.bg, border: pal.running.border };
+                            fontColor = pal.running.font;
                         }
 
                         // Surface slow calls on the node itself so bottlenecks
@@ -1376,7 +1489,7 @@
                         if (tTiming && tTiming.ms >= SLOW_MS) title += '  🐢 ' + formatDuration(tTiming.ms);
 
                         const visual = { id: toolId, label: title + '\n' + tSummary, shape: 'box', color: color,
-                            font: { color: failed ? '#A50E0E' : (isSubagent ? '#1A237E' : '#006064'), align: 'left', multi: false },
+                            font: { color: fontColor, align: 'left', multi: false },
                             shapeProperties: running ? { borderDashes: [5, 4] } : { borderDashes: false },
                             x: toolX, y: isSubagent ? Y_AGENT : Y_TOOL };
 
@@ -1384,7 +1497,7 @@
                         if (!nodes.get(toolId)) {
                             newNodes.push(visual);
                             // Collapsed steps get a dotted edge to signal a skipped router round-trip.
-                            if (anchorId) newEdges.push({ from: anchorId, to: toolId, arrows: 'to, from', color: { color: '#78909c' }, width: 2, dashes: collapse ? [2, 4] : false });
+                            if (anchorId) newEdges.push({ from: anchorId, to: toolId, arrows: 'to, from', color: { color: pal.toolEdge }, width: 2, dashes: collapse ? [2, 4] : false });
                         } else if (prior && (prior.running !== running || prior.failed !== failed)) {
                             // A call drawn while in flight would otherwise stay amber
                             // and dashed forever, since the node already exists.
@@ -1891,6 +2004,7 @@
         { keys: ['n'],             what: 'Next failure' },
         { keys: ['s'],             what: 'Slowest tool calls (≥10s)' },
         { keys: ['o'],             what: 'Session overview' },
+        { keys: ['d'],             what: 'Toggle dark / light mode' },
         { keys: ['?'],             what: 'This list' },
     ];
 
@@ -2057,6 +2171,9 @@
             case 'o': case 'O':
                 if (btnOverview) { btnOverview.click(); e.preventDefault(); }
                 break;
+            case 'd': case 'D':
+                applyTheme(!isDarkMode, true); e.preventDefault();
+                break;
             case '?':
                 renderShortcuts(); e.preventDefault();
                 break;
@@ -2078,16 +2195,20 @@
             catch (e) { return escapeHtmlRaw(mdStr); }
         };
         
-        let icon = ''; let titleColor = '#202124';
+        let icon = ''; let titleColor = isDarkMode ? '#e6edf3' : '#202124';
+        const errBg = isDarkMode ? '#381518' : '#FCE8E6';
+        const errText = isDarkMode ? '#fca5a5' : '#A50E0E';
+        const warnBg = isDarkMode ? '#33260d' : '#FEF7E0';
+        const warnText = isDarkMode ? '#fde68a' : '#996C00';
         
         if (data.type === 'USER_INPUT') {
-            titleColor = '#F57C00'; icon = '👤 ';
+            titleColor = isDarkMode ? '#fbbf24' : '#F57C00'; icon = '👤 ';
             const rawPrompt = data.content || '';
             const cleanPrompt = cleanUserMarkdown(rawPrompt) || cleanUserText(rawPrompt) || rawPrompt;
             const imgMatch = rawPrompt.match(/The user has uploaded (\d+) image\(s\):([^\n<]+)/);
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' USER REQUEST</div>';
             if (imgMatch) {
-                text += '<div style="margin-bottom:12px;"><span style="display:inline-block; background:#FFF3E0; border:1px solid #FFB74D; color:#E65100; font-size:11px; font-weight:600; padding:4px 9px; border-radius:12px;">📎 Attached ' + escapeHtmlRaw(imgMatch[1]) + ' image' + (imgMatch[1] === '1' ? '' : 's') + '</span></div>';
+                text += '<div style="margin-bottom:12px;"><span style="display:inline-block; background:' + (isDarkMode ? '#33200d' : '#FFF3E0') + '; border:1px solid ' + (isDarkMode ? '#f59e0b' : '#FFB74D') + '; color:' + titleColor + '; font-size:11px; font-weight:600; padding:4px 9px; border-radius:12px;">📎 Attached ' + escapeHtmlRaw(imgMatch[1]) + ' image' + (imgMatch[1] === '1' ? '' : 's') + '</span></div>';
             }
             text += '<div class="inspector-section"><div class="inspector-label">What the user asked</div>' +
                      '<div class="markdown-body" style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid '+titleColor+'; border-radius:6px; padding:14px;">' + renderMarkdown(cleanPrompt) + '</div>' +
@@ -2098,7 +2219,7 @@
             }
         } else if (data.type === 'PLANNER_RESPONSE') {
             const isFinalReply = (!data.tool_calls || data.tool_calls.length === 0) && !!(data.content && data.content.trim());
-            titleColor = isFinalReply ? '#137333' : '#8E24AA';
+            titleColor = isFinalReply ? (isDarkMode ? '#34d399' : '#137333') : (isDarkMode ? '#c084fc' : '#8E24AA');
             icon = isFinalReply ? '💬 ' : '🧠 ';
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + (isFinalReply ? ' AGENT REPLY' : ' MAIN AGENT (ROUTER)') + '</div>';
 
@@ -2146,14 +2267,14 @@
                      '<div class="markdown-body">' + renderMarkdown(data.content) + '</div></div>';
             }
         } else if (data.type === 'ERROR_MESSAGE') {
-            titleColor = '#D93025'; icon = '⛔ ';
+            titleColor = isDarkMode ? '#f87171' : '#D93025'; icon = '⛔ ';
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' ERROR</div>' +
                     '<div class="inspector-section"><div class="inspector-label">What went wrong</div>' +
-                    '<div style="background:#FCE8E6; border:1px solid #D93025; border-radius:6px; padding:14px; font-size:13px; color:#A50E0E; white-space:pre-wrap; word-break:break-word;">' +
+                    '<div style="background:'+errBg+'; border:1px solid #D93025; border-radius:6px; padding:14px; font-size:13px; color:'+errText+'; white-space:pre-wrap; word-break:break-word;">' +
                     escapeHtmlRaw(data.content || 'No detail recorded.') + '</div>' +
                     truncationNotice(data) + '</div>';
         } else if (data.type === 'CHECKPOINT') {
-            titleColor = '#5F6368'; icon = '🗜 ';
+            titleColor = isDarkMode ? '#94a3b8' : '#5F6368'; icon = '🗜 ';
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + ' CONTEXT CHECKPOINT</div>' +
                     '<div class="inspector-section"><div class="inspector-label">Why this exists</div>' +
                     '<div style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid #9AA0A6; border-radius:6px; padding:14px; font-size:13px; line-height:1.5;">' +
@@ -2163,7 +2284,7 @@
                     truncationNotice(data) + '</div>';
         } else if (data.type === 'SYSTEM_MESSAGE' || data.type === 'EPHEMERAL_MESSAGE') {
             const isEph = data.type === 'EPHEMERAL_MESSAGE';
-            titleColor = '#5F6368'; icon = isEph ? '💤 ' : '📋 ';
+            titleColor = isDarkMode ? '#94a3b8' : '#5F6368'; icon = isEph ? '💤 ' : '📋 ';
             text += '<div id="inspector-title" style="color:'+titleColor+'">' + icon + (isEph ? ' CONTEXT INJECTION' : ' SYSTEM NOTICE') + '</div>' +
                     '<div class="inspector-section"><div class="inspector-label">Why this exists</div>' +
                     '<div style="background:var(--secondary,#f8f9fa); border:1px solid var(--border,#eee); border-left:4px solid #BDC1C6; border-radius:6px; padding:14px; font-size:13px; line-height:1.5;">' +
@@ -2177,7 +2298,7 @@
         } else if (data.type === 'TOOL_CALL') {
             const tool = data.tool;
             const isSubagent = tool.name === 'invoke_subagent';
-            titleColor = isSubagent ? '#3F51B5' : '#00BCD4';
+            titleColor = isSubagent ? (isDarkMode ? '#818cf8' : '#3F51B5') : (isDarkMode ? '#22d3ee' : '#00BCD4');
             icon = isSubagent ? '🤖 ' : '🔧 ';
             
             // Transcript schemas differ: newer logs use `args`, older use `arguments`
@@ -2219,11 +2340,11 @@
             const timing = parseTiming(data.result, data.step, data.resultStep);
             if (data.running) {
                 text += '<div class="inspector-section"><div class="inspector-label">Result</div>' +
-                        '<div style="background:#FEF7E0; border:1px solid #F9AB00; border-radius:6px; padding:12px; font-size:13px; color:#996C00;">' +
+                        '<div style="background:'+warnBg+'; border:1px solid #F9AB00; border-radius:6px; padding:12px; font-size:13px; color:'+warnText+';">' +
                         '⏳ Still running — no result recorded yet.</div></div>';
             } else if (data.result) {
                 const accent = data.failed ? '#D93025' : '#34A853';
-                const bg = data.failed ? '#FCE8E6' : 'var(--secondary,#f8f9fa)';
+                const bg = data.failed ? errBg : 'var(--secondary,#f8f9fa)';
                 const summary = summarizeResult(data.result, tool.name, data.failed);
 
                 // Duration is shown as a chip next to the section label, turning
@@ -2233,7 +2354,7 @@
                     const slow = timing.ms >= SLOW_MS;
                     durChip = '<span style="margin-left:8px; font-size:11px; font-weight:600; letter-spacing:0; text-transform:none; ' +
                               'padding:2px 7px; border-radius:10px; ' +
-                              (slow ? 'background:#FCE8E6; color:#C5221F;' : 'background:var(--secondary,#e8f0fe); color:var(--muted-foreground,#5f6368);') +
+                              (slow ? 'background:'+errBg+'; color:'+errText+';' : 'background:var(--secondary,#e8f0fe); color:var(--muted-foreground,#5f6368);') +
                               '" title="Time taken by this tool call">' + (slow ? '🐢 ' : '⏱ ') + formatDuration(timing.ms) + '</span>';
                 }
 
@@ -2242,7 +2363,7 @@
 
                 if (summary) {
                     const chips = summary.stats.map(s =>
-                        '<span style="display:inline-block; background:rgba(0,0,0,0.05); border-radius:10px; padding:2px 8px; font-size:11px; color:var(--muted-foreground,#5f6368); margin:6px 6px 0 0;">' +
+                        '<span style="display:inline-block; background:' + (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)') + '; border-radius:10px; padding:2px 8px; font-size:11px; color:var(--muted-foreground,#5f6368); margin:6px 6px 0 0;">' +
                         escapeHtmlRaw(s) + '</span>').join('');
                     text += '<div style="background:' + bg + '; border:1px solid var(--border,#eee); border-left:4px solid ' + accent + '; border-radius:6px; padding:14px;">' +
                             '<div style="font-size:14px; font-weight:600; color:var(--foreground,#202124); line-height:1.45;">' +
