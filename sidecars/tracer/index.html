@@ -106,6 +106,10 @@
         #btnNextIssue.has-issues { border-color: #D93025; color: #D93025; }
         #btnNextIssue.has-issues:hover { background: rgba(217,48,37,0.08); }
         #btnNextIssue:disabled { opacity: 0.45; cursor: default; }
+        #btnUpdate { display: none; background: #137333; color: #fff; border: 1px solid #137333; border-radius: 4px; padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; }
+        #btnUpdate:hover:not(:disabled) { background: #0d652d; }
+        html[data-theme="dark"] #btnUpdate { background: #10b981; border-color: #10b981; color: #052e16; }
+        html[data-theme="dark"] #btnUpdate:hover:not(:disabled) { background: #34d399; }
         
         #graph-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1; }
 
@@ -222,6 +226,7 @@
             <div class="tb-sep"></div>
 
             <div class="tb-group">
+                <button id="btnUpdate" title="Update Agent Tracer to the latest version">⬆ Update</button>
                 <button id="btnOverview" class="tb-btn ghost" title="Show the session summary">Overview</button>
                 <button id="btnExport" class="tb-btn ghost" title="Copy this request's activity as markdown">Copy request</button>
                 <button id="btnTheme" class="tb-btn ghost" title="Toggle dark / light mode (d)">🌙 Dark</button>
@@ -746,6 +751,61 @@
     applyTheme(isDarkMode, false);
     if (btnTheme) {
         btnTheme.addEventListener('click', () => applyTheme(!isDarkMode, true));
+    }
+
+    // --- Self-Update Notification & One-Click Update -----------------------
+    const btnUpdate = document.getElementById('btnUpdate');
+    let latestUpdateState = null;
+
+    async function checkUpdateStatus() {
+        if (!btnUpdate) return;
+        try {
+            const res = await fetch(apiUrl('api/update-status'));
+            if (!res.ok) return;
+            const info = await res.json();
+            latestUpdateState = info;
+            if (info && info.supported && info.behind > 0) {
+                btnUpdate.style.display = 'inline-block';
+                btnUpdate.textContent = '⬆ Update (' + info.behind + ')';
+                const logPreview = (info.commits || []).slice(0, 5).map(c => '• ' + c).join('\n');
+                btnUpdate.title = 'Update available (' + info.behind + ' new commit' + (info.behind === 1 ? '' : 's') + ' on GitHub):\n' +
+                                  (logPreview ? logPreview + '\n\n' : '') +
+                                  'Click to update and reload.';
+            } else {
+                btnUpdate.style.display = 'none';
+            }
+        } catch (e) { /* ignore offline or transient errors */ }
+    }
+
+    if (btnUpdate) {
+        btnUpdate.addEventListener('click', async () => {
+            if (latestUpdateState && latestUpdateState.dirty) {
+                const ok = window.confirm(
+                    'You have uncommitted local changes in your Agent Tracer plugin folder.\n\n' +
+                    'Updating will reset the plugin to the latest GitHub version (origin/main). Continue?'
+                );
+                if (!ok) return;
+            }
+            btnUpdate.disabled = true;
+            btnUpdate.textContent = '⏳ Updating…';
+            try {
+                const res = await fetch(apiUrl('api/update'), { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data && data.ok) {
+                    btnUpdate.textContent = '✅ Updated!';
+                    setTimeout(() => window.location.reload(), 400);
+                } else {
+                    btnUpdate.disabled = false;
+                    btnUpdate.textContent = '⚠ Retry update';
+                    btnUpdate.title = (data && data.error) ? data.error : 'Update failed';
+                }
+            } catch (e) {
+                btnUpdate.disabled = false;
+                btnUpdate.textContent = '⚠ Retry update';
+            }
+        });
+        setTimeout(checkUpdateStatus, 1200);
+        setInterval(checkUpdateStatus, 600000);
     }
 
     // --- Search / filter ---------------------------------------------------

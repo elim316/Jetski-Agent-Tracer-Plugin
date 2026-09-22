@@ -204,3 +204,16 @@ Because this is packaged as a native Jetski UI Plugin, installation is seamless:
 3. Click on **Plugins** and look for **agent-tracer-plugin**.
 4. Click the toggle switch to turn it **ON**. Jetski will automatically integrate it.
 5. In any active conversation, click the **+ (Extensions)** button in the chat header and open **Agent Tracer**.
+
+### 🔄 Updating
+
+Agent Tracer includes **built-in self-updating**:
+1. **Automatic Startup Sync:** When the sidecar starts (`server.py`), it checks if your local plugin folder has any uncommitted edits. If the working tree is clean, it automatically fetches and fast-forwards/resets to the latest `origin/main` in the background.
+2. **One-Click `⬆ Update (N)` Toolbar Button:** While the panel is open, Agent Tracer periodically checks `origin/main` (`/api/update-status`). Whenever new commits are pushed to GitHub, a green **`⬆ Update (N)`** pill appears in the top toolbar with a tooltip previewing the new commit titles. Clicking it updates the repo (`POST /api/update`) and reloads the panel in place.
+
+> [!NOTE]
+> **If you cloned the repository before self-updating was added**, run this one-time command in your terminal to upgrade to the self-updating version:
+> ```bash
+> git -C ~/.gemini/config/plugins/agent-tracer fetch origin main && git -C ~/.gemini/config/plugins/agent-tracer reset --hard origin/main
+> ```
+
