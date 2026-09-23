@@ -106,12 +106,10 @@
         #btnNextIssue.has-issues { border-color: #D93025; color: #D93025; }
         #btnNextIssue.has-issues:hover { background: rgba(217,48,37,0.08); }
         #btnNextIssue:disabled { opacity: 0.45; cursor: default; }
-        #btnUpdate { display: inline-block; background: transparent; color: var(--muted-foreground, #5f6368); border: 1px solid var(--border, #dadce0); border-radius: 4px; padding: 5px 9px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; }
-        #btnUpdate:hover:not(:disabled) { background: var(--secondary, #f1f3f4); color: var(--foreground, #202124); }
-        #btnUpdate.has-update { background: #137333; color: #fff; border-color: #137333; }
-        #btnUpdate.has-update:hover:not(:disabled) { background: #0d652d; color: #fff; }
-        html[data-theme="dark"] #btnUpdate.has-update { background: #10b981; border-color: #10b981; color: #052e16; }
-        html[data-theme="dark"] #btnUpdate.has-update:hover:not(:disabled) { background: #34d399; color: #052e16; }
+        #btnUpdate { display: none; background: #137333; color: #fff; border: 1px solid #137333; border-radius: 4px; padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; }
+        #btnUpdate:hover:not(:disabled) { background: #0d652d; color: #fff; }
+        html[data-theme="dark"] #btnUpdate { background: #10b981; border-color: #10b981; color: #052e16; }
+        html[data-theme="dark"] #btnUpdate:hover:not(:disabled) { background: #34d399; color: #052e16; }
         
         #graph-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1; }
 
@@ -759,57 +757,36 @@
     const btnUpdate = document.getElementById('btnUpdate');
     let latestUpdateState = null;
 
-    async function checkUpdateStatus(forceFetch) {
-        if (!btnUpdate) return null;
+    async function checkUpdateStatus() {
+        if (!btnUpdate) return;
         try {
-            const url = apiUrl('api/update-status') + (forceFetch ? '?force=1' : '');
-            const res = await fetch(url);
-            if (!res.ok) return null;
+            const res = await fetch(apiUrl('api/update-status'));
+            if (!res.ok) return;
             const info = await res.json();
             latestUpdateState = info;
             if (info && info.supported && info.behind > 0) {
-                btnUpdate.classList.add('has-update');
+                btnUpdate.style.display = 'inline-block';
                 btnUpdate.textContent = '⬆ Update (' + info.behind + ')';
                 const logPreview = (info.commits || []).slice(0, 5).map(c => '• ' + c).join('\n');
                 btnUpdate.title = 'Update available (' + info.behind + ' new commit' + (info.behind === 1 ? '' : 's') + ' on GitHub):\n' +
                                   (logPreview ? logPreview + '\n\n' : '') +
                                   'Click to update and reload.';
-            } else if (info && info.supported) {
-                btnUpdate.classList.remove('has-update');
-                const sha = info.local_sha ? ' (' + info.local_sha + ')' : '';
-                btnUpdate.textContent = '🔄 Up to date' + sha;
-                btnUpdate.title = 'Agent Tracer is on the latest GitHub commit' + sha + '.\nClick to check GitHub for updates now.';
+            } else {
+                btnUpdate.style.display = 'none';
             }
-            return info;
-        } catch (e) {
-            return null;
-        }
+        } catch (e) { /* ignore offline or transient errors */ }
     }
 
     if (btnUpdate) {
         btnUpdate.addEventListener('click', async () => {
-            btnUpdate.disabled = true;
-            // If we don't know of pending updates yet, force a live fetch from GitHub first
-            if (!latestUpdateState || !latestUpdateState.behind) {
-                btnUpdate.textContent = '⏳ Checking…';
-                const fresh = await checkUpdateStatus(true);
-                if (!fresh || !fresh.behind) {
-                    btnUpdate.disabled = false;
-                    const sha = (fresh && fresh.local_sha) ? ' (' + fresh.local_sha + ')' : '';
-                    btnUpdate.textContent = '✓ Up to date' + sha;
-                    return;
-                }
-            }
             if (latestUpdateState && latestUpdateState.dirty) {
                 const ok = window.confirm(
                     'You have uncommitted local changes in your Agent Tracer plugin folder.\n\n' +
                     'Updating will reset the plugin to the latest GitHub version (origin/main). Continue?'
                 );
-                if (!ok) {
-                    btnUpdate.disabled = false;
-                    return;
-                }
+                if (!ok) return;
             }
+            btnUpdate.disabled = true;
             btnUpdate.textContent = '⏳ Updating…';
             try {
                 const res = await fetch(apiUrl('api/update'), { method: 'POST' });
@@ -827,8 +804,8 @@
                 btnUpdate.textContent = '⚠ Retry update';
             }
         });
-        setTimeout(() => checkUpdateStatus(false), 800);
-        setInterval(() => checkUpdateStatus(false), 600000);
+        setTimeout(checkUpdateStatus, 1200);
+        setInterval(checkUpdateStatus, 600000);
     }
 
     // --- Search / filter ---------------------------------------------------
