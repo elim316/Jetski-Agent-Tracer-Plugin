@@ -65,6 +65,10 @@ def _check_update_status(force_fetch=False):
     }
 
 
+_SELF_FILE = os.path.abspath(__file__)
+_STARTUP_MTIME = os.path.getmtime(_SELF_FILE) if os.path.exists(_SELF_FILE) else 0.0
+
+
 def _perform_update():
     """Fetch origin/main and reset the plugin repository to the latest upstream commit."""
     global _last_fetch_ts
@@ -80,22 +84,32 @@ def _perform_update():
         return {"ok": True, "sha": new_sha}
 
 
-def _startup_auto_update():
-    """Silently fast-forward/reset to origin/main on startup when the working tree is clean."""
-    try:
-        if not os.path.isdir(os.path.join(_REPO_ROOT, ".git")):
-            return
-        _, status_out, _ = _run_git("status", "--porcelain")
-        if status_out:
-            logging.info("Skipping startup auto-update: local uncommitted changes present.")
-            return
-        status = _check_update_status(force_fetch=True)
-        if status.get("behind", 0) > 0:
-            res = _perform_update()
-            if res.get("ok"):
-                logging.info(f"Auto-updated Agent Tracer to {res.get('sha')}")
-    except Exception as e:
-        logging.debug(f"Startup auto-update skipped: {e}")
+def _background_maintenance_loop():
+    """Continuously auto-sync clean clones every 15m and auto-restart if server.py changes on disk."""
+    last_sync = 0.0
+    while True:
+        try:
+            # 1. If server.py was updated on disk (via git pull/reset or edit), exit so
+            # Jetski's `restart_policy: always` supervisor respawns the new server.py.
+            if os.path.exists(_SELF_FILE) and os.path.getmtime(_SELF_FILE) != _STARTUP_MTIME:
+                logging.info("server.py updated on disk; exiting for supervisor hot-restart.")
+                os._exit(0)
+
+            # 2. Every 15 minutes (and on initial startup), auto-update if working tree is clean.
+            now = time.time()
+            if (now - last_sync) >= 900:
+                last_sync = now
+                if os.path.isdir(os.path.join(_REPO_ROOT, ".git")):
+                    _, status_out, _ = _run_git("status", "--porcelain")
+                    if not status_out:
+                        status = _check_update_status(force_fetch=True)
+                        if status.get("behind", 0) > 0:
+                            res = _perform_update()
+                            if res.get("ok"):
+                                logging.info(f"Auto-updated Agent Tracer to {res.get('sha')}")
+        except Exception as e:
+            logging.debug(f"Background maintenance tick skipped: {e}")
+        time.sleep(5)
 
 
 class AgentTracerHandler(BaseHTTPRequestHandler):
@@ -243,7 +257,7 @@ class AgentTracerHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    threading.Thread(target=_startup_auto_update, daemon=True).start()
+    threading.Thread(target=_background_maintenance_loop, daemon=True).start()
     logging.info(f"Starting Agent Tracer on port {PORT}")
     server = HTTPServer(("0.0.0.0", PORT), AgentTracerHandler)
     server.serve_forever()
