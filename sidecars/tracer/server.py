@@ -52,7 +52,7 @@ def _check_update_status(force_fetch=False):
         if log_out:
             commits = [line.strip() for line in log_out.splitlines() if line.strip()]
 
-    _, status_out, _ = _run_git("status", "--porcelain")
+    _, status_out, _ = _run_git("status", "--porcelain", "--untracked-files=no")
     dirty = bool(status_out)
 
     return {
@@ -100,7 +100,7 @@ def _background_maintenance_loop():
             if (now - last_sync) >= 900:
                 last_sync = now
                 if os.path.isdir(os.path.join(_REPO_ROOT, ".git")):
-                    _, status_out, _ = _run_git("status", "--porcelain")
+                    _, status_out, _ = _run_git("status", "--porcelain", "--untracked-files=no")
                     if not status_out:
                         status = _check_update_status(force_fetch=True)
                         if status.get("behind", 0) > 0:
